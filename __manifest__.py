@@ -25,7 +25,6 @@ Architectural Features:
     "license": "LGPL-3",
     "depends": ["point_of_sale"],
     "data": [
-        "security/clover_security.xml",
         "security/ir.model.access.csv",
         "views/clover_terminal_views.xml",
         "views/clover_transaction_views.xml",
