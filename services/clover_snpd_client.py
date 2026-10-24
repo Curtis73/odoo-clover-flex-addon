@@ -65,6 +65,19 @@ class CloverSnpdClient:
         protocol = "wss" if self.use_ssl else "ws"
         self.ws_url = f"{protocol}://{self.ip_address}:{self.port}/remote_pay"
 
+    def _get_ssl_context(self) -> Optional[ssl.SSLContext]:
+        """Creates a permissive SSLContext supporting Clover's embedded TLS ciphers."""
+        if not self.use_ssl:
+            return None
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        try:
+            ctx.set_ciphers("ALL:@SECLEVEL=0")
+        except Exception:
+            pass
+        return ctx
+
     def test_tcp_connection(self) -> Dict[str, Any]:
         """Fast TCP handshake check to verify the Clover device is reachable on the local LAN."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -124,7 +137,7 @@ class CloverSnpdClient:
         }
 
         ws = None
-        ssl_opt = {"cert_reqs": ssl.CERT_NONE} if self.use_ssl else None
+        ssl_opt = {"context": self._get_ssl_context()} if self.use_ssl else None
         try:
             ws = websocket.create_connection(
                 self.ws_url,
@@ -223,7 +236,7 @@ class CloverSnpdClient:
         }
 
         ws = None
-        ssl_opt = {"cert_reqs": ssl.CERT_NONE} if self.use_ssl else None
+        ssl_opt = {"context": self._get_ssl_context()} if self.use_ssl else None
         try:
             ws = websocket.create_connection(
                 self.ws_url,
