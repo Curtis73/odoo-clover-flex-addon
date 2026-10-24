@@ -19,8 +19,17 @@ export class PaymentCloverCloud extends PaymentInterface {
      * @param {string} cid - Payment line CID
      * @returns {Promise<boolean>}
      */
+    async send_payment_request(cid) {
+        return this.sendPaymentRequest(cid);
+    }
+
     async sendPaymentRequest(cid) {
-        await super.sendPaymentRequest(cid);
+        if (super.sendPaymentRequest) {
+            await super.sendPaymentRequest(cid);
+        } else if (super.send_payment_request) {
+            await super.send_payment_request(cid);
+        }
+
 
         const order = this.pos.get_order();
         const line = order ? order.get_paymentline(cid) : null;
@@ -119,8 +128,17 @@ export class PaymentCloverCloud extends PaymentInterface {
     /**
      * Sends cancellation signal to Clover terminal to clear customer screen.
      */
+    async send_payment_cancel(order, cid) {
+        return this.sendPaymentCancel(order, cid);
+    }
+
     async sendPaymentCancel(order, cid) {
-        await super.sendPaymentCancel(order, cid);
+        if (super.sendPaymentCancel) {
+            await super.sendPaymentCancel(order, cid);
+        } else if (super.send_payment_cancel) {
+            await super.send_payment_cancel(order, cid);
+        }
+
         this._clearPolling(cid);
 
         const line = order ? order.get_paymentline(cid) : null;
