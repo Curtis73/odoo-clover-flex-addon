@@ -140,6 +140,8 @@ class CloverApiClient:
         }
         if self.api_token:
             headers["Authorization"] = f"Bearer {self.api_token}"
+        if self.merchant_id:
+            headers["X-Clover-Merchant-Id"] = self.merchant_id
         if with_idempotency:
             headers["Idempotency-Key"] = str(uuid.uuid4())
         return headers
