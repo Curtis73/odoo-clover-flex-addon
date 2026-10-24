@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="pos_payment_method_view_form_clover" model="ir.ui.view">
+        <field name="name">pos.payment.method.form.clover</field>
+        <field name="model">pos.payment.method</field>
+        <field name="inherit_id" ref="point_of_sale.pos_payment_method_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//group[@name='payment_terminal']" position="after">
+                <group string="Clover Cloud Pay Configuration"
+                       invisible="use_payment_terminal != 'clover_cloud'">
+                    <group string="Device &amp; Gateway">
+                        <field name="clover_terminal_id"
+                               required="use_payment_terminal == 'clover_cloud'"/>
+                        <field name="clover_environment"
+                               required="use_payment_terminal == 'clover_cloud'"/>
+                        <field name="clover_merchant_id"
+                               placeholder="e.g. 13-character merchant ID"
+                               required="use_payment_terminal == 'clover_cloud'"/>
+                        <field name="clover_api_token"
+                               password="True"
+                               placeholder="Clover OAuth Bearer Token"
+                               required="use_payment_terminal == 'clover_cloud'"/>
+                    </group>
+                    <group string="Terminal Behavior">
+                        <field name="clover_allow_tip"/>
+                        <field name="clover_auto_print_receipt"/>
+                    </group>
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>

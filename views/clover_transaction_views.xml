@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Clover Transaction Form View (Readonly for audit safety) -->
+    <record id="view_clover_transaction_form" model="ir.ui.view">
+        <field name="name">clover.transaction.form</field>
+        <field name="model">clover.transaction</field>
+        <field name="arch" type="xml">
+            <form string="Clover Transaction Audit Record" create="false" edit="false" delete="false">
+                <header>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="pending,success,failed"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="external_payment_id" string="Idempotency UUID"/>
+                        <h1>
+                            <field name="external_payment_id"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Financial Details">
+                            <field name="amount" widget="monetary"/>
+                            <field name="currency_id" invisible="1"/>
+                            <field name="pos_payment_method_id"/>
+                            <field name="clover_terminal_id"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                        </group>
+                        <group string="Clover Processing Metadata">
+                            <field name="clover_payment_id"/>
+                            <field name="auth_code"/>
+                            <field name="card_brand"/>
+                            <field name="card_last4" string="Masked Card (Last 4)"/>
+                            <field name="create_date" string="Initiated At"/>
+                        </group>
+                    </group>
+                    <group string="Error / Diagnostic Details" invisible="not error_message">
+                        <field name="error_message" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Clover Transaction Tree View -->
+    <record id="view_clover_transaction_tree" model="ir.ui.view">
+        <field name="name">clover.transaction.tree</field>
+        <field name="model">clover.transaction</field>
+        <field name="arch" type="xml">
+            <tree string="Clover Transactions" create="false" edit="false" delete="false" default_order="create_date desc">
+                <field name="create_date" string="Date/Time"/>
+                <field name="external_payment_id"/>
+                <field name="clover_terminal_id"/>
+                <field name="amount" widget="monetary"/>
+                <field name="currency_id" column_invisible="True"/>
+                <field name="card_brand"/>
+                <field name="card_last4" string="Last 4"/>
+                <field name="auth_code"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'success'"
+                       decoration-warning="state == 'pending'"
+                       decoration-danger="state in ('failed', 'cancelled')"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Clover Transaction Search View -->
+    <record id="view_clover_transaction_search" model="ir.ui.view">
+        <field name="name">clover.transaction.search</field>
+        <field name="model">clover.transaction</field>
+        <field name="arch" type="xml">
+            <search string="Search Clover Transactions">
+                <field name="external_payment_id"/>
+                <field name="clover_payment_id"/>
+                <field name="auth_code"/>
+                <field name="clover_terminal_id"/>
+                <separator/>
+                <filter string="Approved" name="approved" domain="[('state', '=', 'success')]"/>
+                <filter string="Pending" name="pending" domain="[('state', '=', 'pending')]"/>
+                <filter string="Failed / Declined" name="failed" domain="[('state', 'in', ['failed', 'cancelled'])]"/>
+                <group expand="0" string="Group By">
+                    <filter string="Terminal" name="group_by_terminal" context="{'group_by': 'clover_terminal_id'}"/>
+                    <filter string="Status" name="group_by_state" context="{'group_by': 'state'}"/>
+                    <filter string="Date" name="group_by_date" context="{'group_by': 'create_date:day'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action for Clover Transactions -->
+    <record id="action_clover_transaction" model="ir.actions.act_window">
+        <field name="name">Clover Transactions Audit</field>
+        <field name="res_model">clover.transaction</field>
+        <field name="view_mode">tree,form</field>
+        <field name="context">{'search_default_approved': 1}</field>
+    </record>
+
+    <!-- Menuitem under POS Orders / Audits -->
+    <menuitem id="menu_clover_transaction"
+              name="Clover Payment Logs"
+              parent="point_of_sale.menu_point_of_sale"
+              action="action_clover_transaction"
+              sequence="35"/>
+</odoo>
