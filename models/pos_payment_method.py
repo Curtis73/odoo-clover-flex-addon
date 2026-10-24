@@ -25,16 +25,20 @@ class PosPaymentMethod(models.Model):
             res.append(("clover_cloud", _("Clover Cloud Pay (Flex / Mini)")))
         return res
 
+    def _get_terminal_provider_selection(self):
+        try:
+            res = super()._get_terminal_provider_selection()
+        except AttributeError:
+            res = []
+        if not any(code == "clover_cloud" for code, _label in res):
+            res.append(("clover_cloud", "Clover Cloud Pay (Flex / Mini)"))
+        return res
+
     use_payment_terminal = fields.Selection(
         selection=_get_payment_terminal_selection,
         string="Payment Terminal",
         default="none",
         help="Select whether this payment method connects to a card terminal.",
-    )
-
-    payment_provider = fields.Selection(
-        selection_add=[("clover_cloud", "Clover Cloud Pay (Flex / Mini)")],
-        ondelete={"clover_cloud": "set default"},
     )
 
     @api.onchange("use_payment_terminal")
@@ -63,18 +67,19 @@ class PosPaymentMethod(models.Model):
             vals["use_payment_terminal"] = "clover_cloud"
         return super().write(vals)
 
-    def _register_hook(self):
-        res = super()._register_hook()
+    def init(self):
+        super().init()
         try:
-            records = self.search([
-                ("use_payment_terminal", "=", "clover_cloud"),
-                "|", ("payment_provider", "=", False), ("payment_provider", "!=", "clover_cloud")
-            ])
-            if records:
-                records.write({"payment_provider": "clover_cloud"})
+            self.env.cr.execute(
+                """
+                UPDATE pos_payment_method
+                SET payment_provider = 'clover_cloud'
+                WHERE use_payment_terminal = 'clover_cloud'
+                  AND (payment_provider IS NULL OR payment_provider != 'clover_cloud')
+                """
+            )
         except Exception:
             pass
-        return res
 
     clover_terminal_id = fields.Many2one(
         "clover.terminal",

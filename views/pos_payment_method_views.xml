@@ -6,9 +6,7 @@
         <field name="inherit_id" ref="point_of_sale.pos_payment_method_view_form"/>
         <field name="arch" type="xml">
             <xpath expr="//sheet" position="inside">
-                <group string="Payment Terminal">
-                    <field name="use_payment_terminal"/>
-                </group>
+                <field name="use_payment_terminal" invisible="1"/>
                 <group string="Clover Terminal Configuration"
                        invisible="use_payment_terminal != 'clover_cloud' and payment_provider != 'clover_cloud'">
                     <field name="clover_terminal_mode" invisible="1"/>
