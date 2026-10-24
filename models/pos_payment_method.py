@@ -32,6 +32,50 @@ class PosPaymentMethod(models.Model):
         help="Select whether this payment method connects to a card terminal.",
     )
 
+    payment_provider = fields.Selection(
+        selection_add=[("clover_cloud", "Clover Cloud Pay (Flex / Mini)")],
+        ondelete={"clover_cloud": "set default"},
+    )
+
+    @api.onchange("use_payment_terminal")
+    def _onchange_use_payment_terminal(self):
+        if self.use_payment_terminal:
+            self.payment_provider = self.use_payment_terminal
+
+    @api.onchange("payment_provider")
+    def _onchange_payment_provider(self):
+        if self.payment_provider:
+            self.use_payment_terminal = self.payment_provider
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if vals.get("use_payment_terminal") == "clover_cloud" and not vals.get("payment_provider"):
+                vals["payment_provider"] = "clover_cloud"
+            elif vals.get("payment_provider") == "clover_cloud" and not vals.get("use_payment_terminal"):
+                vals["use_payment_terminal"] = "clover_cloud"
+        return super().create(vals_list)
+
+    def write(self, vals):
+        if vals.get("use_payment_terminal") == "clover_cloud" and "payment_provider" not in vals:
+            vals["payment_provider"] = "clover_cloud"
+        elif vals.get("payment_provider") == "clover_cloud" and "use_payment_terminal" not in vals:
+            vals["use_payment_terminal"] = "clover_cloud"
+        return super().write(vals)
+
+    def _register_hook(self):
+        res = super()._register_hook()
+        try:
+            records = self.search([
+                ("use_payment_terminal", "=", "clover_cloud"),
+                "|", ("payment_provider", "=", False), ("payment_provider", "!=", "clover_cloud")
+            ])
+            if records:
+                records.write({"payment_provider": "clover_cloud"})
+        except Exception:
+            pass
+        return res
+
     clover_terminal_id = fields.Many2one(
         "clover.terminal",
         string="Clover Terminal",
@@ -74,10 +118,11 @@ class PosPaymentMethod(models.Model):
         help="If enabled, prints the transaction receipt directly on the Clover Flex internal printer.",
     )
 
-    @api.constrains("use_payment_terminal", "clover_terminal_id", "clover_api_token")
+    @api.constrains("use_payment_terminal", "payment_provider", "clover_terminal_id", "clover_api_token")
     def _check_clover_configuration(self):
         for pm in self:
-            if pm.use_payment_terminal == "clover_cloud":
+            is_clover = (pm.use_payment_terminal == "clover_cloud") or (getattr(pm, "payment_provider", None) == "clover_cloud")
+            if is_clover:
                 if not pm.clover_terminal_id:
                     raise ValidationError(_("You must select a Clover Terminal for Clover Pay."))
                 if pm.clover_terminal_id.connection_mode == "cloud" and not pm.clover_api_token:
@@ -121,7 +166,8 @@ class PosPaymentMethod(models.Model):
         RPC Entrypoint called by Odoo POS OWL frontend when cashier clicks Clover payment.
         """
         pm = self.browse(payment_method_id)
-        if not pm.exists() or pm.use_payment_terminal != "clover_cloud":
+        is_clover = (pm.use_payment_terminal == "clover_cloud") or (getattr(pm, "payment_provider", None) == "clover_cloud")
+        if not pm.exists() or not is_clover:
             return {"success": False, "error": _("Invalid payment method configuration.")}
 
         if amount <= 0:

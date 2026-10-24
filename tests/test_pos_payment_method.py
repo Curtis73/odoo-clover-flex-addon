@@ -119,6 +119,23 @@ class TestPosPaymentMethodClover(unittest.TestCase):
         self.assertEqual(res["card_last4"], "5678")
         mock_tx.write.assert_called_once()
 
+    def test_payment_provider_field_sync(self):
+        """Verify synchronization between payment_provider and use_payment_terminal."""
+        pm = PosPaymentMethod()
+        vals_list = [{"name": "Clover Card", "payment_provider": "clover_cloud"}]
+        with patch.object(PosPaymentMethod, "create", wraps=pm.create) if hasattr(PosPaymentMethod, "create") else patch("unittest.mock.MagicMock"):
+            pass
+        # Test onchange methods
+        pm.use_payment_terminal = "clover_cloud"
+        pm.payment_provider = None
+        pm._onchange_use_payment_terminal()
+        self.assertEqual(pm.payment_provider, "clover_cloud")
+
+        pm.payment_provider = "clover_cloud"
+        pm.use_payment_terminal = None
+        pm._onchange_payment_provider()
+        self.assertEqual(pm.use_payment_terminal, "clover_cloud")
+
 
 if __name__ == "__main__":
     unittest.main()

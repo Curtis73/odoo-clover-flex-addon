@@ -216,7 +216,9 @@ class CloverTerminal(models.Model):
         payment_method = self.env["pos.payment.method"].search(
             [
                 ("clover_terminal_id", "=", self.id),
+                "|",
                 ("use_payment_terminal", "=", "clover_cloud"),
+                ("payment_provider", "=", "clover_cloud"),
             ],
             limit=1,
         )

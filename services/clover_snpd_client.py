@@ -10,11 +10,15 @@ Architecture:
 - Strictly PCI-DSS SAQ-A compliant: Zero cardholder data / PAN enters Odoo memory or database.
 """
 
+import base64
 import json
 import logging
+import os
 import socket
 import ssl
+import struct
 import time
+import urllib.parse
 import uuid
 from typing import Any, Dict, Optional, Tuple
 
@@ -22,10 +26,150 @@ _logger = logging.getLogger(__name__)
 
 try:
     import websocket
-    HAS_WEBSOCKET = True
+    HAS_WEBSOCKET_LIB = True
 except ImportError:
-    HAS_WEBSOCKET = False
-    _logger.warning("websocket-client Python library not installed. SNPD WebSocket mode will be limited.")
+    websocket = None
+    HAS_WEBSOCKET_LIB = False
+
+HAS_WEBSOCKET = True  # Fully supported via embedded RFC-6455 SimpleWebSocket fallback
+
+
+class SimpleWebSocket:
+    """
+    Pure Python RFC-6455 WebSocket client using standard library socket and ssl.
+    Provides zero-dependency WebSocket support for standard Odoo Docker environments.
+    """
+    def __init__(self, url: str, timeout: float = 15.0, ssl_context: Optional[ssl.SSLContext] = None):
+        self.url = url
+        self.timeout = float(timeout)
+        self.ssl_context = ssl_context
+        self.sock = None
+        self._connect()
+
+    def _connect(self):
+        parsed = urllib.parse.urlparse(self.url)
+        is_ssl = parsed.scheme in ("wss", "https")
+        host = parsed.hostname
+        port = parsed.port or (443 if is_ssl else 80)
+        path = parsed.path or "/"
+        if parsed.query:
+            path += f"?{parsed.query}"
+
+        raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        raw_sock.settimeout(self.timeout)
+        raw_sock.connect((host, port))
+
+        if is_ssl:
+            ctx = self.ssl_context
+            if ctx is None:
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                try:
+                    ctx.set_ciphers("ALL:@SECLEVEL=0")
+                except Exception:
+                    pass
+            self.sock = ctx.wrap_socket(raw_sock, server_hostname=host)
+        else:
+            self.sock = raw_sock
+
+        key = base64.b64encode(os.urandom(16)).decode("ascii")
+        headers = [
+            f"GET {path} HTTP/1.1",
+            f"Host: {host}:{port}",
+            "Upgrade: websocket",
+            "Connection: Upgrade",
+            f"Sec-WebSocket-Key: {key}",
+            "Sec-WebSocket-Version: 13",
+            "\r\n",
+        ]
+        self.sock.sendall("\r\n".join(headers).encode("ascii"))
+
+        resp = b""
+        while b"\r\n\r\n" not in resp:
+            chunk = self.sock.recv(1024)
+            if not chunk:
+                raise ConnectionError("Server closed connection during WebSocket handshake.")
+            resp += chunk
+
+        status_line = resp.split(b"\r\n")[0].decode("latin-1", errors="ignore")
+        if " 101 " not in status_line:
+            raise ConnectionError(f"WebSocket upgrade failed: {status_line}")
+
+    def send(self, data: str):
+        payload = data.encode("utf-8")
+        length = len(payload)
+        mask = os.urandom(4)
+
+        header = bytearray([0x81])  # FIN=1, Opcode=1 (Text)
+        if length <= 125:
+            header.append(0x80 | length)
+        elif length <= 65535:
+            header.append(0x80 | 126)
+            header.extend(struct.pack("!H", length))
+        else:
+            header.append(0x80 | 127)
+            header.extend(struct.pack("!Q", length))
+
+        header.extend(mask)
+        masked_payload = bytearray(payload[i] ^ mask[i % 4] for i in range(length))
+        self.sock.sendall(bytes(header + masked_payload))
+
+    def recv(self) -> str:
+        b1, b2 = struct.unpack("!BB", self._read_exact(2))
+        opcode = b1 & 0x0F
+        has_mask = bool(b2 & 0x80)
+        length = b2 & 0x7F
+
+        if length == 126:
+            length = struct.unpack("!H", self._read_exact(2))[0]
+        elif length == 127:
+            length = struct.unpack("!Q", self._read_exact(8))[0]
+
+        mask = self._read_exact(4) if has_mask else None
+        data = self._read_exact(length)
+
+        if mask:
+            data = bytearray(data[i] ^ mask[i % 4] for i in range(length))
+
+        if opcode == 0x8:  # Close
+            raise ConnectionError("WebSocket closed by server.")
+        elif opcode == 0x9:  # Ping -> reply Pong
+            pong = bytearray([0x8A, 0x00])
+            self.sock.sendall(pong)
+            return self.recv()
+        elif opcode in (0x1, 0x2):
+            return data.decode("utf-8", errors="ignore")
+        else:
+            return ""
+
+    def _read_exact(self, n: int) -> bytes:
+        buf = bytearray()
+        while len(buf) < n:
+            try:
+                chunk = self.sock.recv(n - len(buf))
+            except socket.timeout:
+                raise TimeoutError("Timed out reading WebSocket frame.")
+            if not chunk:
+                raise ConnectionError("Connection lost while reading WebSocket frame.")
+            buf.extend(chunk)
+        return bytes(buf)
+
+    def settimeout(self, timeout: float):
+        if self.sock:
+            self.sock.settimeout(float(timeout))
+
+    def close(self):
+        if self.sock:
+            try:
+                self.sock.sendall(bytes([0x88, 0x00]))
+            except Exception:
+                pass
+            try:
+                self.sock.close()
+            except Exception:
+                pass
+            self.sock = None
 
 
 class CloverSnpdException(Exception):
@@ -81,6 +225,17 @@ class CloverSnpdClient:
             pass
         return ctx
 
+    def _create_ws_connection(self, url: str, timeout: float):
+        """Creates a WebSocket connection using SimpleWebSocket (pure Python standard library) or websocket-client."""
+        ctx = self._get_ssl_context()
+        if HAS_WEBSOCKET_LIB:
+            try:
+                ssl_opt = {"context": ctx} if ctx else None
+                return websocket.create_connection(url, timeout=timeout, sslopt=ssl_opt)
+            except Exception as e:
+                _logger.warning("websocket-client failed, using pure Python SimpleWebSocket: %s", e)
+        return SimpleWebSocket(url=url, timeout=timeout, ssl_context=ctx)
+
     def test_tcp_connection(self) -> Dict[str, Any]:
         """Fast TCP handshake check to verify the Clover device is reachable on the local LAN."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -118,12 +273,6 @@ class CloverSnpdClient:
         Executes the initial pairing handshake with the Clover device.
         Sends client identification and pairing challenge, expecting an authToken.
         """
-        if not HAS_WEBSOCKET:
-            return {
-                "success": False,
-                "message": "Python 'websocket-client' package is required for SNPD pairing. Run 'pip install websocket-client'.",
-            }
-
         # First verify TCP port is open
         tcp_check = self.test_tcp_connection()
         if not tcp_check["success"]:
@@ -140,13 +289,8 @@ class CloverSnpdClient:
         }
 
         ws = None
-        ssl_opt = {"context": self._get_ssl_context()} if self.use_ssl else None
         try:
-            ws = websocket.create_connection(
-                self.ws_url,
-                timeout=self.timeout,
-                sslopt=ssl_opt,
-            )
+            ws = self._create_ws_connection(self.ws_url, timeout=self.timeout)
             ws.send(json.dumps(handshake_payload))
 
             # Listen for terminal pairing response or code confirmation
@@ -154,10 +298,14 @@ class CloverSnpdClient:
             auth_token = None
             received_messages = []
 
+            timeout_types = (socket.timeout, TimeoutError)
+            if websocket is not None and hasattr(websocket, "WebSocketTimeoutException"):
+                timeout_types = (socket.timeout, TimeoutError, websocket.WebSocketTimeoutException)
+
             while time.time() - start_time < self.timeout:
                 try:
                     raw_msg = ws.recv()
-                except websocket.WebSocketTimeoutException:
+                except timeout_types:
                     break
 
                 if not raw_msg:
@@ -223,9 +371,6 @@ class CloverSnpdClient:
         Transmits a card sale request to the Clover Flex over the local SNPD WebSocket.
         Listens for the customer's card tap/insert/PIN and captures the final authorization result.
         """
-        if not HAS_WEBSOCKET:
-            raise CloverSnpdException("Python 'websocket-client' is required for SNPD transactions.")
-
         sale_payload = {
             "method": "SALE_REQUEST",
             "type": "SALE",
@@ -240,22 +385,24 @@ class CloverSnpdClient:
         }
 
         ws = None
-        ssl_opt = {"context": self._get_ssl_context()} if self.use_ssl else None
         try:
-            ws = websocket.create_connection(
+            ws = self._create_ws_connection(
                 self.ws_url,
                 timeout=60.0,  # 60s window for customer card interaction
-                sslopt=ssl_opt,
             )
             ws.send(json.dumps(sale_payload))
 
             start_time = time.time()
             sale_result = None
 
+            timeout_types = (socket.timeout, TimeoutError)
+            if websocket is not None and hasattr(websocket, "WebSocketTimeoutException"):
+                timeout_types = (socket.timeout, TimeoutError, websocket.WebSocketTimeoutException)
+
             while time.time() - start_time < 60.0:
                 try:
                     raw_msg = ws.recv()
-                except websocket.WebSocketTimeoutException:
+                except timeout_types:
                     break
 
                 if not raw_msg:

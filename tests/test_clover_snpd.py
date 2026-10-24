@@ -112,6 +112,29 @@ class TestCloverSnpdClient(unittest.TestCase):
         self.assertEqual(res["cardTransaction"]["last4"], "4242")
         self.assertEqual(res["cardTransaction"]["authCode"], "AUTH_9876")
 
+    @patch("socket.socket")
+    def test_simple_websocket_handshake_and_recv(self, mock_socket_cls):
+        """Verify embedded SimpleWebSocket completes RFC-6455 handshake and decodes frame."""
+        mock_sock = MagicMock()
+        mock_socket_cls.return_value = mock_sock
+
+        handshake_resp = (
+            b"HTTP/1.1 101 Switching Protocols\r\n"
+            b"Upgrade: websocket\r\n"
+            b"Connection: Upgrade\r\n\r\n"
+        )
+        frame_bytes = bytearray([0x81, 0x05]) + b"hello"
+
+        mock_sock.recv.side_effect = [handshake_resp, frame_bytes[:2], frame_bytes[2:]]
+
+        from services.clover_snpd_client import SimpleWebSocket
+        ws = SimpleWebSocket("ws://192.168.10.95:12345/remote_pay", timeout=2.0)
+        msg = ws.recv()
+        self.assertEqual(msg, "hello")
+        ws.send("test")
+        self.assertTrue(mock_sock.sendall.called)
+        ws.close()
+
 
 if __name__ == "__main__":
     unittest.main()
