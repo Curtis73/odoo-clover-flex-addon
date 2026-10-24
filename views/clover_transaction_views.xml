@@ -88,10 +88,11 @@
         <field name="search_view_id" ref="view_clover_transaction_search"/>
     </record>
 
-    <!-- Menu under POS Orders -->
+    <!-- Menu under POS Configuration -->
     <menuitem id="menu_clover_transaction"
               name="Clover Payment Logs"
-              parent="point_of_sale.menu_point_of_sale"
+              parent="point_of_sale.menu_point_config_product"
               action="action_clover_transaction"
-              sequence="35"/>
+              sequence="115"/>
+
 </odoo>

@@ -15,9 +15,10 @@ class PosPaymentMethod(models.Model):
     _inherit = "pos.payment.method"
 
     def _get_payment_terminal_selection(self):
-        res = super()._get_payment_terminal_selection()
-        res.append(("clover_cloud", _("Clover Cloud Pay (Flex / Mini)")))
-        return res
+        return super()._get_payment_terminal_selection() + [
+            ("clover_cloud", _("Clover Cloud Pay (Flex / Mini)"))
+        ]
+
 
     clover_terminal_id = fields.Many2one(
         "clover.terminal",
