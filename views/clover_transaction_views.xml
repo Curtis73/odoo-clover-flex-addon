@@ -68,7 +68,7 @@
         <field name="name">clover.transaction.search</field>
         <field name="model">clover.transaction</field>
         <field name="arch" type="xml">
-            <search string="Search Clover Transactions">
+            <search>
                 <field name="external_payment_id"/>
                 <field name="clover_payment_id"/>
                 <field name="auth_code"/>
@@ -76,11 +76,11 @@
                 <separator/>
                 <filter string="Approved" name="approved" domain="[('state', '=', 'success')]"/>
                 <filter string="Pending" name="pending" domain="[('state', '=', 'pending')]"/>
-                <filter string="Failed / Declined" name="failed" domain="[('state', 'in', ['failed', 'cancelled'])]"/>
+                <filter string="Failed" name="failed" domain="[('state', 'in', ('failed', 'cancelled'))]"/>
                 <group expand="0" string="Group By">
                     <filter string="Terminal" name="group_by_terminal" context="{'group_by': 'clover_terminal_id'}"/>
                     <filter string="Status" name="group_by_state" context="{'group_by': 'state'}"/>
-                    <filter string="Date" name="group_by_date" context="{'group_by': 'create_date:day'}"/>
+                    <filter string="Date" name="group_by_date" context="{'group_by': 'create_date'}"/>
                 </group>
             </search>
         </field>
@@ -91,6 +91,7 @@
         <field name="name">Clover Transactions Audit</field>
         <field name="res_model">clover.transaction</field>
         <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_clover_transaction_search"/>
         <field name="context">{'search_default_approved': 1}</field>
     </record>
 
