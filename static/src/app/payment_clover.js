@@ -37,7 +37,14 @@ export class PaymentCloverCloud extends PaymentInterface {
             return false;
         }
 
-        const externalId = crypto.randomUUID();
+        // Robust UUID v4 generation compatible with older embedded POS browsers (e.g. Citaq H10-2)
+        const externalId = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+            ? crypto.randomUUID()
+            : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+                const r = (Math.random() * 16) | 0;
+                const v = c === "x" ? r : (r & 0x3) | 0x8;
+                return v.toString(16);
+            });
         line.terminal_service_id = externalId;
         line.set_payment_status("waitingCard");
 
