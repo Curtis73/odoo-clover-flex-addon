@@ -5,7 +5,10 @@
         <field name="model">pos.payment.method</field>
         <field name="inherit_id" ref="point_of_sale.pos_payment_method_view_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//field[@name='use_payment_terminal']" position="after">
+            <xpath expr="//sheet" position="inside">
+                <group string="Payment Terminal">
+                    <field name="use_payment_terminal"/>
+                </group>
                 <group string="Clover Cloud Pay Configuration"
                        invisible="use_payment_terminal != 'clover_cloud'">
                     <group string="Device &amp; Gateway">
