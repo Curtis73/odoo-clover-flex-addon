@@ -15,6 +15,7 @@ running the official Clover Cloud Pay Display application.
 Architectural Features:
 -----------------------
 * Native Odoo 20 POS OWL interface registered via pos_payment_interfaces.
+* Native Odoo 20 security access control via ir.access.
 * Direct cloud communication via Clover /connect/v1 REST Pay Display API.
 * PCI-DSS v4.0 SAQ-A compliant: Zero cardholder data or PAN enters Odoo.
 * Complete double-charge prevention using UUID v4 idempotency keys.
@@ -25,7 +26,7 @@ Architectural Features:
     "license": "LGPL-3",
     "depends": ["point_of_sale"],
     "data": [
-        "security/ir.model.access.csv",
+        "security/ir.access.csv",
         "views/clover_terminal_views.xml",
         "views/clover_transaction_views.xml",
         "views/pos_payment_method_views.xml",

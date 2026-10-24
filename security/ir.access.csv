@@ -1,0 +1,6 @@
+id,name,model_id,group_id/id,operation,domain
+access_clover_terminal_user,clover.terminal.user,clover.terminal,point_of_sale.group_pos_user,r,
+access_clover_terminal_manager,clover.terminal.manager,clover.terminal,point_of_sale.group_pos_manager,crud,
+access_clover_transaction_user,clover.transaction.user,clover.transaction,point_of_sale.group_pos_user,r,
+access_clover_transaction_manager,clover.transaction.manager,clover.transaction,point_of_sale.group_pos_manager,r,
+access_clover_transaction_admin,clover.transaction.admin,clover.transaction,base.group_system,r,
