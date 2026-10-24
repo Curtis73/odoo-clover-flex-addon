@@ -20,6 +20,12 @@
                             icon="fa-unlink"
                             invisible="connection_mode != 'snpd' or not pairing_auth_token"
                             confirm="Are you sure you want to remove the pairing token?"/>
+                    <button name="action_send_test_payment"
+                            string="Test £0.01 Sale"
+                            type="object"
+                            class="btn-success"
+                            icon="fa-credit-card"
+                            invisible="connection_mode != 'snpd' or not pairing_auth_token"/>
                     <button name="action_test_terminal_connection"
                             string="Test Connection"
                             type="object"

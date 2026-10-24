@@ -308,3 +308,52 @@ class CloverTerminal(models.Model):
         else:
             self.write({"last_status": "Offline / Error"})
             raise UserError(result.get("message", _("Failed to communicate with device.")))
+
+    def action_send_test_payment(self):
+        """Dispatches an immediate £0.01 test sale to verify live device card interaction."""
+        self.ensure_one()
+        if self.connection_mode != "snpd":
+            raise UserError(_("Test payment button is currently configured for SNPD mode."))
+        if not self.pairing_auth_token:
+            raise UserError(_("Terminal is not paired yet. Please paste the pairing token first."))
+
+        port = self.port or 12345
+        client = CloverSnpdClient(
+            ip_address=self.ip_address,
+            port=port,
+            use_ssl=self.use_https,
+            auth_token=self.pairing_auth_token,
+            device_serial=self.device_serial,
+            pos_id=f"Odoo-POS-{self.name}",
+            timeout=30.0,
+        )
+
+        test_id = f"test_{int(fields.Datetime.now().timestamp())}"
+        currency = self.company_id.currency_id.name or "GBP"
+        try:
+            res = client.send_sale_request(
+                amount_cents=1,
+                external_payment_id=test_id,
+                currency=currency,
+                prompt_tip=False,
+                print_receipt=False,
+            )
+            card_tx = res.get("cardTransaction", {})
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": _("Test Payment Approved!"),
+                    "message": _(
+                        "Payment of £0.01 authorized on %s! Card: %s ****%s (Auth: %s)",
+                        self.name,
+                        card_tx.get("cardType", "Card"),
+                        card_tx.get("last4", "0000"),
+                        card_tx.get("authCode", "OK"),
+                    ),
+                    "sticky": True,
+                    "type": "success",
+                },
+            }
+        except Exception as exc:
+            raise UserError(_("Test payment failed: %s", str(exc)))
