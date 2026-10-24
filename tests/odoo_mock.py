@@ -15,6 +15,10 @@ def setup_odoo_mock():
 
     odoo = MagicMock()
     odoo.api = MagicMock()
+    odoo.api.model = lambda f: f
+    odoo.api.constrains = lambda *args, **kwargs: lambda f: f
+    odoo.api.depends = lambda *args, **kwargs: lambda f: f
+    odoo.api.onchange = lambda *args, **kwargs: lambda f: f
     odoo.fields = MagicMock()
     odoo.models = MagicMock()
     odoo.models.Model = object

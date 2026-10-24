@@ -67,6 +67,58 @@ class TestPosPaymentMethodClover(unittest.TestCase):
         self.assertFalse(client.verify_ssl)
         self.assertEqual(client.api_token, "local_auth_test")
 
+    @patch("services.clover_snpd_client.CloverSnpdClient.send_sale_request")
+    def test_snpd_initiate_payment(self, mock_sale):
+        """Verify SNPD mode dispatches to CloverSnpdClient and captures card details."""
+        mock_sale.return_value = {
+            "result": "SUCCESS",
+            "id": "SNPD_PAY_888",
+            "cardTransaction": {
+                "cardType": "MASTERCARD",
+                "last4": "5678",
+                "authCode": "APP_1234",
+            },
+        }
+
+        pm_model = PosPaymentMethod()
+        pm_record = MagicMock()
+        pm_record.id = 1
+        pm_record.exists.return_value = True
+        pm_record.use_payment_terminal = "clover_cloud"
+        pm_record.clover_allow_tip = False
+        pm_record.clover_auto_print_receipt = True
+        pm_record._amount_to_cents.return_value = 1000
+
+        terminal = MagicMock()
+        terminal.id = 5
+        terminal.name = "Counter Flex"
+        terminal.device_serial = "C143EQ20230587"
+        terminal.connection_mode = "snpd"
+        terminal.ip_address = "192.168.10.95"
+        terminal.port = 12345
+        terminal.use_https = False
+        terminal.pairing_auth_token = "valid_pairing_token_abc"
+        pm_record.clover_terminal_id = terminal
+
+        mock_tx = MagicMock()
+        mock_tx_model = MagicMock()
+        mock_tx_model.search.return_value = None
+        mock_tx_model.create.return_value = mock_tx
+
+        pm_model.browse = MagicMock(return_value=pm_record)
+        pm_model.env = {
+            "clover.transaction": MagicMock(sudo=MagicMock(return_value=mock_tx_model)),
+            "company": MagicMock(currency_id=MagicMock(name="GBP")),
+        }
+
+        res = pm_model.action_clover_initiate_payment(1, 10.0, "ext-tx-uuid-1")
+        self.assertTrue(res["success"])
+        self.assertEqual(res["state"], "success")
+        self.assertEqual(res["clover_payment_id"], "SNPD_PAY_888")
+        self.assertEqual(res["card_brand"], "MASTERCARD")
+        self.assertEqual(res["card_last4"], "5678")
+        mock_tx.write.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

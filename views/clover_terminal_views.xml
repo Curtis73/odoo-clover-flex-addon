@@ -7,6 +7,19 @@
         <field name="arch" type="xml">
             <form string="Clover Terminal">
                 <header>
+                    <button name="action_pair_terminal"
+                            string="Pair Terminal"
+                            type="object"
+                            class="btn-primary"
+                            icon="fa-key"
+                            invisible="connection_mode != 'snpd' or pairing_auth_token"/>
+                    <button name="action_unpair_terminal"
+                            string="Unpair"
+                            type="object"
+                            class="btn-secondary"
+                            icon="fa-unlink"
+                            invisible="connection_mode != 'snpd' or not pairing_auth_token"
+                            confirm="Are you sure you want to unpair this terminal?"/>
                     <button name="action_test_terminal_connection"
                             string="Test Connection"
                             type="object"
@@ -33,14 +46,21 @@
                         <group string="Connection Setup">
                             <field name="connection_mode" widget="radio"/>
                             <field name="ip_address"
-                                   invisible="connection_mode != 'lan'"
-                                   required="connection_mode == 'lan'"
-                                   placeholder="e.g. 192.168.1.150"/>
+                                   invisible="connection_mode == 'cloud'"
+                                   required="connection_mode in ('lan', 'snpd')"
+                                   placeholder="e.g. 192.168.10.95"/>
                             <field name="port"
-                                   invisible="connection_mode != 'lan'"
-                                   required="connection_mode == 'lan'"/>
+                                   invisible="connection_mode == 'cloud'"
+                                   required="connection_mode in ('lan', 'snpd')"/>
                             <field name="use_https"
-                                   invisible="connection_mode != 'lan'"/>
+                                   invisible="connection_mode == 'cloud'"/>
+                            <field name="pairing_code"
+                                   invisible="connection_mode != 'snpd' or not pairing_code"
+                                   readonly="1"/>
+                            <field name="pairing_auth_token"
+                                   invisible="connection_mode != 'snpd'"
+                                   readonly="1"
+                                   password="True"/>
                         </group>
                     </group>
                     <group>

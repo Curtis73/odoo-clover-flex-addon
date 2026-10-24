@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
+import random
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 try:
     from ..services.clover_api_client import CloverApiClient, CloverApiException
+    from ..services.clover_snpd_client import CloverSnpdClient, CloverSnpdException
 except (ImportError, ValueError):
     from services.clover_api_client import CloverApiClient, CloverApiException
+    from services.clover_snpd_client import CloverSnpdClient, CloverSnpdException
 
 
 class CloverTerminal(models.Model):
@@ -37,27 +40,39 @@ class CloverTerminal(models.Model):
     )
     connection_mode = fields.Selection(
         selection=[
+            ("snpd", "Secure Network Pay (SNPD Local WebSocket)"),
             ("lan", "Local Network (LAN REST Pay)"),
             ("cloud", "Clover Cloud Pay Display"),
         ],
         string="Connection Mode",
-        default="lan",
+        default="snpd",
         required=True,
-        help="LAN mode communicates directly with the terminal on your local Wi-Fi (fast, no cloud token required). Cloud mode connects through Clover servers.",
+        help="SNPD: Direct local Wi-Fi pairing code (no developer account needed, instant). "
+             "LAN: Local REST Pay. Cloud: Clover Cloud Gateway.",
     )
     ip_address = fields.Char(
         string="Device IP Address",
-        help="Local network IP address of the terminal (e.g. 192.168.1.150). Shown in the REST Pay Display app.",
+        help="Local network IP address of the terminal (e.g. 192.168.10.95). Shown in the app.",
     )
     port = fields.Integer(
         string="Port",
-        default=12346,
-        help="Local REST Pay server port (default is 12346).",
+        default=12345,
+        help="Server port: 12345 for SNPD, 12346 for REST Pay.",
     )
     use_https = fields.Boolean(
-        string="Use HTTPS (SSL)",
-        default=True,
-        help="Connect over secure TLS. Uncheck only if Server is Secured is toggled off in device settings.",
+        string="Use HTTPS / WSS (SSL)",
+        default=False,
+        help="Connect over secure TLS/WSS. Keep unchecked if unencrypted WS/HTTP is selected in device settings.",
+    )
+    pairing_code = fields.Char(
+        string="Pairing Code",
+        readonly=True,
+        help="4-digit pairing code to enter on the Clover terminal screen.",
+    )
+    pairing_auth_token = fields.Char(
+        string="Pairing Auth Token",
+        copy=False,
+        help="Permanent authorization token issued by the Clover device upon successful pairing.",
     )
     active = fields.Boolean(default=True)
     company_id = fields.Many2one(
@@ -78,9 +93,86 @@ class CloverTerminal(models.Model):
         )
     ]
 
+    def action_pair_terminal(self):
+        """
+        Initiates 4-digit code pairing with the Clover device running Secure Network Pay Display.
+        """
+        self.ensure_one()
+        if not self.ip_address:
+            raise UserError(_("Please enter the Device IP Address first."))
+
+        # Generate fresh 4-digit pairing PIN
+        code = f"{random.randint(1000, 9999)}"
+        self.pairing_code = code
+
+        port = self.port or 12345
+        client = CloverSnpdClient(
+            ip_address=self.ip_address,
+            port=port,
+            use_ssl=self.use_https,
+            device_serial=self.device_serial,
+            pos_id=f"Odoo-POS-{self.name}",
+            timeout=15.0,
+        )
+
+        res = client.initiate_pairing(pairing_code=code)
+        if res.get("success") and res.get("auth_token"):
+            self.write({
+                "pairing_auth_token": res["auth_token"],
+                "last_status": "Online / Paired (SNPD)",
+                "last_heartbeat": fields.Datetime.now(),
+            })
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": _("Clover Pairing Successful!"),
+                    "message": _("Terminal '%s' is paired and authenticated.", self.name),
+                    "sticky": False,
+                    "type": "success",
+                },
+            }
+        else:
+            # If prompt was displayed on device
+            self.write({"last_status": "Pairing Pending / Confirm Code"})
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": _("Enter Pairing Code On Device"),
+                    "message": _(
+                        "Pairing request sent to %s:%s. Enter code '%s' on your Clover screen to authorize.",
+                        self.ip_address,
+                        port,
+                        code,
+                    ),
+                    "sticky": True,
+                    "type": "warning",
+                },
+            }
+
+    def action_unpair_terminal(self):
+        """Clears pairing credentials for this terminal."""
+        self.ensure_one()
+        self.write({
+            "pairing_code": False,
+            "pairing_auth_token": False,
+            "last_status": "Unpaired",
+        })
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Terminal Unpaired"),
+                "message": _("Pairing credentials removed for '%s'.", self.name),
+                "sticky": False,
+                "type": "info",
+            },
+        }
+
     def action_test_terminal_connection(self):
         """
-        Tests connectivity between this terminal and Odoo (Local LAN or Clover Cloud).
+        Tests connectivity between this terminal and Odoo (SNPD, Local LAN, or Clover Cloud).
         """
         self.ensure_one()
         payment_method = self.env["pos.payment.method"].search(
@@ -91,7 +183,46 @@ class CloverTerminal(models.Model):
             limit=1,
         )
 
-        if self.connection_mode == "lan":
+        if self.connection_mode == "snpd":
+            if not self.ip_address:
+                raise UserError(_("Please enter the Device IP Address for SNPD mode."))
+            port = self.port or 12345
+            snpd = CloverSnpdClient(
+                ip_address=self.ip_address,
+                port=port,
+                use_ssl=self.use_https,
+                auth_token=self.pairing_auth_token,
+                device_serial=self.device_serial,
+            )
+            res = snpd.test_tcp_connection()
+            if res.get("success"):
+                status_label = "Online / Paired (SNPD)" if self.pairing_auth_token else "Online / Ready to Pair (SNPD)"
+                self.write({
+                    "last_status": status_label,
+                    "last_heartbeat": fields.Datetime.now(),
+                })
+                return {
+                    "type": "ir.actions.client",
+                    "tag": "display_notification",
+                    "params": {
+                        "title": _("Clover SNPD Terminal Reachable"),
+                        "message": _(
+                            "Device '%s' (%s) is reachable on local network at %s:%s. %s",
+                            self.name,
+                            self.device_serial,
+                            self.ip_address,
+                            port,
+                            "Paired & authenticated!" if self.pairing_auth_token else "Ready to pair (click 'Pair Terminal').",
+                        ),
+                        "sticky": False,
+                        "type": "success",
+                    },
+                }
+            else:
+                self.write({"last_status": "Offline / Unreachable"})
+                raise UserError(res.get("message", _("Failed to reach terminal.")))
+
+        elif self.connection_mode == "lan":
             if not self.ip_address:
                 raise UserError(_("Please enter the Device IP Address for Local LAN mode."))
             scheme = "https" if self.use_https else "http"
