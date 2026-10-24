@@ -93,6 +93,44 @@ class CloverTerminal(models.Model):
         )
     ]
 
+    @api.onchange("pairing_auth_token")
+    def _onchange_pairing_auth_token(self):
+        """Automatically sanitizes pasted QR code URLs or direct tokens."""
+        if self.pairing_auth_token:
+            raw = self.pairing_auth_token.strip()
+            # If user pasted the whole QR URL: wss://192.168.10.95:12345/remote_pay?authenticationToken=...
+            if "authenticationToken=" in raw or "authToken=" in raw or "token=" in raw:
+                import urllib.parse
+                try:
+                    parsed = urllib.parse.urlparse(raw)
+                    if parsed.hostname and not self.ip_address:
+                        self.ip_address = parsed.hostname
+                    if parsed.port and not self.port:
+                        self.port = parsed.port
+                    qs = urllib.parse.parse_qs(parsed.query)
+                    token = (
+                        qs.get("authenticationToken")
+                        or qs.get("authToken")
+                        or qs.get("token")
+                    )
+                    if token:
+                        self.pairing_auth_token = token[0].strip()
+                        self.last_status = "Online / Paired (SNPD)"
+                        return
+                except Exception:
+                    pass
+            if "?" in raw:
+                for part in raw.split("?")[1].split("&"):
+                    if "=" in part:
+                        k, v = part.split("=", 1)
+                        if k.lower() in ("authenticationtoken", "authtoken", "token"):
+                            self.pairing_auth_token = v.strip()
+                            self.last_status = "Online / Paired (SNPD)"
+                            return
+            self.pairing_auth_token = raw
+            if raw:
+                self.last_status = "Online / Paired (SNPD)"
+
     def action_pair_terminal(self):
         """
         Initiates 4-digit code pairing with the Clover device running Secure Network Pay Display.

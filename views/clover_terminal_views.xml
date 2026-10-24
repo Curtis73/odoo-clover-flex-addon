@@ -14,12 +14,12 @@
                             icon="fa-key"
                             invisible="connection_mode != 'snpd' or pairing_auth_token"/>
                     <button name="action_unpair_terminal"
-                            string="Unpair"
+                            string="Clear Token / Unpair"
                             type="object"
                             class="btn-secondary"
                             icon="fa-unlink"
                             invisible="connection_mode != 'snpd' or not pairing_auth_token"
-                            confirm="Are you sure you want to unpair this terminal?"/>
+                            confirm="Are you sure you want to remove the pairing token?"/>
                     <button name="action_test_terminal_connection"
                             string="Test Connection"
                             type="object"
@@ -59,8 +59,7 @@
                                    readonly="1"/>
                             <field name="pairing_auth_token"
                                    invisible="connection_mode != 'snpd'"
-                                   readonly="1"
-                                   password="True"/>
+                                   placeholder="Paste token or full QR code text here"/>
                         </group>
                     </group>
                     <group>

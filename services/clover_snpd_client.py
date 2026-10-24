@@ -63,7 +63,10 @@ class CloverSnpdClient:
         self.timeout = float(timeout)
 
         protocol = "wss" if self.use_ssl else "ws"
-        self.ws_url = f"{protocol}://{self.ip_address}:{self.port}/remote_pay"
+        if self.auth_token:
+            self.ws_url = f"{protocol}://{self.ip_address}:{self.port}/remote_pay?authenticationToken={self.auth_token}"
+        else:
+            self.ws_url = f"{protocol}://{self.ip_address}:{self.port}/remote_pay"
 
     def _get_ssl_context(self) -> Optional[ssl.SSLContext]:
         """Creates a permissive SSLContext supporting Clover's embedded TLS ciphers."""
@@ -232,6 +235,7 @@ class CloverSnpdClient:
             "disableTip": not prompt_tip,
             "disableReceiptSelection": not print_receipt,
             "authToken": self.auth_token,
+            "authenticationToken": self.auth_token,
             "requestId": str(uuid.uuid4()),
         }
 

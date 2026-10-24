@@ -32,7 +32,10 @@ class TestCloverSnpdClient(unittest.TestCase):
 
     def test_init_validation(self):
         """Verify client initializes URL correctly and rejects missing IP."""
-        self.assertEqual(self.client.ws_url, "ws://192.168.10.95:12345/remote_pay")
+        self.assertEqual(
+            self.client.ws_url,
+            "ws://192.168.10.95:12345/remote_pay?authenticationToken=test_token_123"
+        )
         
         ssl_client = CloverSnpdClient(ip_address="192.168.1.50", port=12346, use_ssl=True)
         self.assertEqual(ssl_client.ws_url, "wss://192.168.1.50:12346/remote_pay")
