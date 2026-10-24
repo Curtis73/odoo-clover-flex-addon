@@ -1,28 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-Clover Transaction Audit Log.
-Maintains an immutable record of all terminal transaction attempts for audit,
-dispute resolution, and idempotency tracking.
-
-PCI-DSS COMPLIANCE:
--------------------
-In strict accordance with PCI-DSS Requirement 3 (Protect Stored Cardholder Data):
-- Under no circumstances does this model store Primary Account Numbers (PAN).
-- Only the truncated/masked PAN last 4 digits are stored in `card_last4`.
-- Sensitive Authentication Data (CAV2/CVC2/CVV2/CID, full track data, PIN)
-  is NEVER received or persisted.
-"""
-
-try:
-    from odoo import api, fields, models, _
-except ImportError:
-    class _Dummy:
-        def __init__(self, *args, **kwargs): pass
-        def __call__(self, *args, **kwargs): return lambda f: f
-        def __getattr__(self, name): return _Dummy()
-    api = fields = models = _Dummy()
-    models.Model = object
-    _ = lambda s, *args: s
+from odoo import fields, models
 
 
 class CloverTransaction(models.Model):

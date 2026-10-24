@@ -1,25 +1,25 @@
 # -*- coding: utf-8 -*-
 {
-    "name": "Clover Cloud Pay POS Integration (Flex & Mini)",
-    "version": "1.0.0",
+    "name": "Clover Cloud Pay POS Integration",
+    "version": "20.0.1.0.0",
     "category": "Sales/Point of Sale",
     "sequence": 6,
-    "summary": "Connect Clover Flex and Clover Mini payment terminals via Clover Cloud Pay Display",
+    "summary": "High-performance, PCI-DSS compliant Clover Cloud Pay terminal integration for Odoo 20 POS",
     "description": """
-Clover Cloud Pay Terminal Integration for Odoo Point of Sale
-============================================================
-Provides an open-source, PCI-DSS compliant semi-integrated payment terminal solution
-for Odoo POS using physical Clover Flex and Clover Mini devices.
+Clover Cloud Pay Terminal Integration for Odoo 20 POS
+=====================================================
+Enterprise-grade semi-integrated payment terminal solution for Odoo 20 POS.
+Connects directly to physical Clover Flex (Mobile/Handheld) and Clover Mini terminals
+running the official Clover Cloud Pay Display application.
 
-Key Features:
--------------
-* Direct integration via Clover REST Pay Display API (v3).
-* High performance with connection pooling and non-blocking asynchronous POS polling.
-* Strict PCI-DSS compliance: Zero cardholder data or PAN stored in Odoo.
-* Idempotency protection with client-generated UUIDs to eliminate double charges.
-* Supports on-device customer tipping and thermal receipt printing.
-* Works with Clover Flex (Mobile), Clover Mini 2, Clover Mini 3, and Clover Station.
-* No £200+ vendor license fees or external proprietary bridge servers required.
+Architectural Features:
+-----------------------
+* Native Odoo 20 POS OWL interface registered via pos_payment_interfaces.
+* Direct cloud communication via Clover /connect/v1 REST Pay Display API.
+* PCI-DSS v4.0 SAQ-A compliant: Zero cardholder data or PAN enters Odoo.
+* Complete double-charge prevention using UUID v4 idempotency keys.
+* Connection pooling with keep-alive for sub-150ms transaction dispatch.
+* Support for on-device customer tipping and thermal receipt printing.
     """,
     "author": "Open Source Community",
     "license": "LGPL-3",

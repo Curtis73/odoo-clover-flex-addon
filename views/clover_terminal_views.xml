@@ -25,14 +25,14 @@
                     </div>
                     <group>
                         <group string="Hardware Specifications">
-                            <field name="device_serial" placeholder="e.g. C031UQ52340015"/>
+                            <field name="device_serial" placeholder="e.g. C143EQ20230587"/>
                             <field name="model"/>
                             <field name="company_id" groups="base.group_multi_company"/>
                             <field name="active" widget="boolean_toggle"/>
                         </group>
-                        <group string="Diagnostic Information">
+                        <group string="Diagnostics">
                             <field name="last_heartbeat"/>
-                            <field name="notes" placeholder="Notes on terminal location, SIM card, etc."/>
+                            <field name="notes" placeholder="Notes on location, Wi-Fi network, etc."/>
                         </group>
                     </group>
                 </sheet>
@@ -40,12 +40,12 @@
         </field>
     </record>
 
-    <!-- Clover Terminal Tree View -->
-    <record id="view_clover_terminal_tree" model="ir.ui.view">
-        <field name="name">clover.terminal.tree</field>
+    <!-- Clover Terminal List View (Odoo 20 <list> standard) -->
+    <record id="view_clover_terminal_list" model="ir.ui.view">
+        <field name="name">clover.terminal.list</field>
         <field name="model">clover.terminal</field>
         <field name="arch" type="xml">
-            <tree string="Clover Terminals">
+            <list string="Clover Terminals">
                 <field name="name"/>
                 <field name="device_serial"/>
                 <field name="model"/>
@@ -55,7 +55,7 @@
                 <field name="last_heartbeat"/>
                 <field name="company_id" groups="base.group_multi_company"/>
                 <field name="active" widget="boolean_toggle"/>
-            </tree>
+            </list>
         </field>
     </record>
 
@@ -63,18 +63,18 @@
     <record id="action_clover_terminal" model="ir.actions.act_window">
         <field name="name">Clover Terminals</field>
         <field name="res_model">clover.terminal</field>
-        <field name="view_mode">tree,form</field>
+        <field name="view_mode">list,form</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
-                Register your first Clover Terminal
+                Register a Clover Terminal
             </p>
             <p>
-                Add your Clover Flex or Clover Mini 2/3 device serial number to integrate with Odoo POS.
+                Add your Clover Flex or Mini device serial number to enable cloud payments.
             </p>
         </field>
     </record>
 
-    <!-- Menuitem under POS Configuration -->
+    <!-- Menu under POS Configuration -->
     <menuitem id="menu_clover_terminal"
               name="Clover Terminals"
               parent="point_of_sale.menu_point_config_product"

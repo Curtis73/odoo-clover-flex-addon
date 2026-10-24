@@ -4,25 +4,22 @@ Unit tests for Clover Cloud Pay REST API Client.
 Verifies /connect/v1 payload structures, PCI-DSS log sanitization, and error resilience.
 """
 
+import sys
+from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 import requests
 
-try:
-    from ..services.clover_api_client import (
-        CloverApiClient,
-        CloverApiException,
-        sanitize_data_for_logs,
-    )
-except (ImportError, ValueError):
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from services.clover_api_client import (
-        CloverApiClient,
-        CloverApiException,
-        sanitize_data_for_logs,
-    )
+# Ensure module root is on sys.path
+root_dir = str(Path(__file__).resolve().parent.parent)
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
+
+from services.clover_api_client import (
+    CloverApiClient,
+    CloverApiException,
+    sanitize_data_for_logs,
+)
 
 
 class TestCloverApiClient(unittest.TestCase):
@@ -52,7 +49,6 @@ class TestCloverApiClient(unittest.TestCase):
 
         sanitized = sanitize_data_for_logs(sensitive_payload)
 
-        # Check that authorization and token are redacted
         self.assertIn("[REDACTED]", sanitized["authorization"])
         self.assertNotIn("secret_token_xyz", sanitized["authorization"])
         self.assertIn("[REDACTED]", sanitized["card"])

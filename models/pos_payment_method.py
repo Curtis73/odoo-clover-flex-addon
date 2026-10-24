@@ -1,34 +1,11 @@
 # -*- coding: utf-8 -*-
-"""
-Extends pos.payment.method to support Clover Cloud Pay Display integration.
-"""
-
 import logging
-
-try:
-    from odoo import api, fields, models, _
-    from odoo.exceptions import UserError, ValidationError
-except ImportError:
-    class _Dummy:
-        def __init__(self, *args, **kwargs): pass
-        def __call__(self, *args, **kwargs): return lambda f: f
-        def __getattr__(self, name): return _Dummy()
-    api = fields = models = _Dummy()
-    models.Model = object
-    _ = lambda s, *args: s
-    class UserError(Exception): pass
-    class ValidationError(Exception): pass
-
+from odoo import api, fields, models, _
+from odoo.exceptions import UserError, ValidationError
 try:
     from ..services.clover_api_client import CloverApiClient, CloverApiException
 except (ImportError, ValueError):
-    try:
-        from services.clover_api_client import CloverApiClient, CloverApiException
-    except (ImportError, ValueError):
-        import sys
-        from pathlib import Path
-        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-        from services.clover_api_client import CloverApiClient, CloverApiException
+    from services.clover_api_client import CloverApiClient, CloverApiException
 
 
 _logger = logging.getLogger(__name__)
@@ -38,7 +15,7 @@ class PosPaymentMethod(models.Model):
     _inherit = "pos.payment.method"
 
     def _get_payment_terminal_selection(self):
-        res = super()._get_payment_terminal_selection() if hasattr(super(), "_get_payment_terminal_selection") else []
+        res = super()._get_payment_terminal_selection()
         res.append(("clover_cloud", _("Clover Cloud Pay (Flex / Mini)")))
         return res
 
@@ -82,7 +59,7 @@ class PosPaymentMethod(models.Model):
     @api.constrains("use_payment_terminal", "clover_terminal_id", "clover_api_token")
     def _check_clover_configuration(self):
         for pm in self:
-            if getattr(pm, "use_payment_terminal", None) == "clover_cloud":
+            if pm.use_payment_terminal == "clover_cloud":
                 if not pm.clover_terminal_id:
                     raise ValidationError(_("You must select a Clover Terminal for Clover Cloud Pay."))
                 if not pm.clover_api_token:
@@ -95,7 +72,7 @@ class PosPaymentMethod(models.Model):
             api_token=self.clover_api_token,
             merchant_id=self.clover_merchant_id,
             environment=self.clover_environment or "prod_eu",
-            pos_id=f"Odoo-POS-{self.id}",
+            pos_id=f"Odoo20-POS-{self.id}",
         )
 
     def _amount_to_cents(self, amount: float) -> int:
@@ -105,7 +82,6 @@ class PosPaymentMethod(models.Model):
         decimal_places = 2 if dec is None else dec
         factor = 10 ** decimal_places
         return int(round(amount * factor))
-
 
     @api.model
     def action_clover_initiate_payment(self, payment_method_id: int, amount: float, external_id: str):
@@ -153,7 +129,6 @@ class PosPaymentMethod(models.Model):
                 print_receipt=pm.clover_auto_print_receipt,
             )
 
-            # Check if immediately resolved (e.g. synchronous terminal response)
             result_code = response.get("result") or response.get("status") or ""
             if result_code.upper() in ("SUCCESS", "APPROVED", "PAID"):
                 card_tx = response.get("cardTransaction", {})
@@ -212,7 +187,6 @@ class PosPaymentMethod(models.Model):
         if not tx:
             return {"success": False, "error": _("Transaction not found for ID: %s") % external_id}
 
-        # If already finalized in DB, return state immediately
         if tx.state in ("success", "failed", "cancelled"):
             return {
                 "success": tx.state == "success",
@@ -234,14 +208,12 @@ class PosPaymentMethod(models.Model):
                 clover_payment_id=tx.clover_payment_id or None,
             )
 
-            # Handle list or elements responses
             if "elements" in data and isinstance(data["elements"], list) and data["elements"]:
                 data = data["elements"][0]
 
             status_val = data.get("result") or data.get("status") or ""
             payment_obj = data.get("payment") if isinstance(data.get("payment"), dict) else data
 
-            # Clover status mappings: SUCCESS / APPROVED / PAID
             if status_val.upper() in ("SUCCESS", "PAID", "APPROVED") or (payment_obj and payment_obj.get("id") and status_val.upper() not in ("FAIL", "FAILED", "DECLINED")):
                 card_tx = payment_obj.get("cardTransaction", {})
                 clover_pid = payment_obj.get("id") or data.get("id", "")
@@ -273,7 +245,6 @@ class PosPaymentMethod(models.Model):
                 tx.write({"state": "cancelled", "error_message": "Cancelled by customer/terminal."})
                 return {"success": False, "state": "cancelled", "error": "Transaction cancelled."}
             else:
-                # Still in progress on terminal screen
                 return {"success": True, "state": "pending"}
 
         except CloverApiException as exc:

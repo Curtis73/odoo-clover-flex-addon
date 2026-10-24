@@ -1,24 +1,6 @@
 # -*- coding: utf-8 -*-
-"""
-Clover Terminal Model.
-Represents individual physical Clover hardware terminals (Flex, Mini, etc.)
-registered to a merchant.
-"""
-
-try:
-    from odoo import api, fields, models, _
-    from odoo.exceptions import UserError, ValidationError
-except ImportError:
-    # Standalone fallback for testing/CI when full Odoo ERP is not in PYTHONPATH
-    class _Dummy:
-        def __init__(self, *args, **kwargs): pass
-        def __call__(self, *args, **kwargs): return lambda f: f
-        def __getattr__(self, name): return _Dummy()
-    api = fields = models = _Dummy()
-    models.Model = object
-    _ = lambda s, *args: s
-    class UserError(Exception): pass
-    class ValidationError(Exception): pass
+from odoo import api, fields, models, _
+from odoo.exceptions import UserError
 
 
 class CloverTerminal(models.Model):
@@ -35,8 +17,7 @@ class CloverTerminal(models.Model):
         string="Device Serial Number",
         required=True,
         index=True,
-        help="Physical serial number of the Clover device (e.g. C031UQ52340015). "
-             "Can be found on the device back label or in Settings > About Device.",
+        help="Physical serial number of the Clover device (e.g. C143EQ20230587).",
     )
     model = fields.Selection(
         selection=[
@@ -92,30 +73,26 @@ class CloverTerminal(models.Model):
             )
 
         client = payment_method._get_clover_client()
-        try:
-            result = client.test_connection(self.device_serial)
-            if result.get("success"):
-                self.write({
-                    "last_status": "Online / Registered",
-                    "last_heartbeat": fields.Datetime.now(),
-                })
-                return {
-                    "type": "ir.actions.client",
-                    "tag": "display_notification",
-                    "params": {
-                        "title": _("Clover Connection Successful"),
-                        "message": _(
-                            "Device '%s' (%s) is verified on Clover Cloud.",
-                            self.name,
-                            self.device_serial,
-                        ),
-                        "sticky": False,
-                        "type": "success",
-                    },
-                }
-            else:
-                self.write({"last_status": "Device Not Found in Merchant Account"})
-                raise UserError(result.get("message"))
-        except Exception as exc:
-            self.write({"last_status": f"Error: {str(exc)[:100]}"})
-            raise UserError(_("Clover Cloud Connection Failed: %s") % str(exc))
+        result = client.test_connection(self.device_serial)
+        if result.get("success"):
+            self.write({
+                "last_status": "Online / Registered",
+                "last_heartbeat": fields.Datetime.now(),
+            })
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": _("Clover Connection Successful"),
+                    "message": _(
+                        "Device '%s' (%s) is verified on Clover Cloud.",
+                        self.name,
+                        self.device_serial,
+                    ),
+                    "sticky": False,
+                    "type": "success",
+                },
+            }
+        else:
+            self.write({"last_status": "Offline / Error"})
+            raise UserError(result.get("message", _("Failed to communicate with device.")))
