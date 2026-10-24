@@ -95,7 +95,10 @@ class CloverApiClient:
         if not api_token:
             raise ValueError("Clover API token is strictly required.")
 
-        self.api_token = api_token.strip()
+        raw_token = api_token.strip()
+        if raw_token.lower().startswith("bearer "):
+            raw_token = raw_token[7:].strip()
+        self.api_token = raw_token
         self.merchant_id = merchant_id.strip() if merchant_id else ""
         self.environment = environment
         self.pos_id = pos_id
