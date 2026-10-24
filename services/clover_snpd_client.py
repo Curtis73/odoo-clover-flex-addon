@@ -205,12 +205,50 @@ class CloverSnpdClient:
         self.device_serial = (device_serial or "").strip()
         self.pos_id = pos_id.strip()
         self.timeout = float(timeout)
+        self._msg_seq = 0
 
         protocol = "wss" if self.use_ssl else "ws"
         if self.auth_token:
             self.ws_url = f"{protocol}://{self.ip_address}:{self.port}/remote_pay?authenticationToken={self.auth_token}"
         else:
             self.ws_url = f"{protocol}://{self.ip_address}:{self.port}/remote_pay"
+
+    def _build_remote_message(self, method: str, payload_obj: Any, req_id: Optional[str] = None) -> str:
+        """Wraps inner payload in Clover RemoteMessage envelope required by SNPD."""
+        self._msg_seq += 1
+        msg_id = str(req_id or self._msg_seq)
+        payload_str = json.dumps(payload_obj) if not isinstance(payload_obj, str) else payload_obj
+        envelope = {
+            "id": msg_id,
+            "method": method,
+            "type": "COMMAND",
+            "packageName": "com.clover.remote.client.messages",
+            "payload": payload_str,
+            "remoteSourceSDK": "com.clover.remote-pay-android",
+            "remoteApplicationID": f"{self.pos_id}:1.0",
+            "version": 1,
+        }
+        return json.dumps(envelope)
+
+    def _unpack_message(self, raw_str: str) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
+        """Unpacks Clover RemoteMessage envelope, returning (method, payload_dict, envelope)."""
+        try:
+            envelope = json.loads(raw_str)
+        except Exception:
+            return "", {}, {}
+        method = envelope.get("method") or ""
+        payload_raw = envelope.get("payload")
+        payload = {}
+        if isinstance(payload_raw, str):
+            try:
+                payload = json.loads(payload_raw)
+            except Exception:
+                payload = {"raw": payload_raw}
+        elif isinstance(payload_raw, dict):
+            payload = payload_raw
+        elif not payload_raw:
+            payload = envelope
+        return method, payload, envelope
 
     def _get_ssl_context(self) -> Optional[ssl.SSLContext]:
         """Creates a permissive SSLContext supporting Clover's embedded TLS ciphers."""
@@ -273,27 +311,22 @@ class CloverSnpdClient:
         Executes the initial pairing handshake with the Clover device.
         Sends client identification and pairing challenge, expecting an authToken.
         """
-        # First verify TCP port is open
         tcp_check = self.test_tcp_connection()
         if not tcp_check["success"]:
             return tcp_check
 
-        # Build pairing initiation frame
         handshake_payload = {
             "method": "PAIRING_REQUEST",
-            "remoteApplicationId": f"{self.pos_id}:1.0.0",
-            "posName": self.pos_id,
+            "name": self.pos_id,
             "serialNumber": self.device_serial,
-            "pairingCode": pairing_code,
-            "requestId": str(uuid.uuid4()),
+            "authenticationToken": pairing_code or self.auth_token,
         }
 
         ws = None
         try:
             ws = self._create_ws_connection(self.ws_url, timeout=self.timeout)
-            ws.send(json.dumps(handshake_payload))
+            ws.send(self._build_remote_message("PAIRING_REQUEST", handshake_payload, req_id="PR-1"))
 
-            # Listen for terminal pairing response or code confirmation
             start_time = time.time()
             auth_token = None
             received_messages = []
@@ -311,25 +344,25 @@ class CloverSnpdClient:
                 if not raw_msg:
                     continue
 
-                try:
-                    msg = json.loads(raw_msg)
-                except Exception:
-                    msg = {"raw": raw_msg}
-                received_messages.append(msg)
+                method, payload, envelope = self._unpack_message(raw_msg)
+                received_messages.append({"method": method, "payload": payload})
 
-                # Check for successful pairing token
                 token_candidate = (
-                    msg.get("pairingAuthToken")
-                    or msg.get("authToken")
-                    or msg.get("payload", {}).get("authToken")
-                    or msg.get("payload", {}).get("pairingAuthToken")
+                    payload.get("authenticationToken")
+                    or payload.get("pairingAuthToken")
+                    or payload.get("authToken")
+                    or envelope.get("authToken")
                 )
-                if token_candidate:
+
+                pairing_state = payload.get("pairingState") or envelope.get("pairingState")
+                if pairing_state in ("PAIRED", "INITIAL") and token_candidate:
                     auth_token = token_candidate
                     break
-
-                if msg.get("method") == "PAIRING_SUCCESS":
-                    auth_token = msg.get("payload") or msg.get("authToken") or str(uuid.uuid4())
+                elif token_candidate:
+                    auth_token = token_candidate
+                    break
+                elif method == "PAIRING_SUCCESS":
+                    auth_token = payload.get("token") or str(uuid.uuid4())
                     break
 
             if auth_token:
@@ -342,7 +375,7 @@ class CloverSnpdClient:
             else:
                 return {
                     "success": False,
-                    "message": f"Pairing request sent. Please ensure pairing code '{pairing_code}' is confirmed on the terminal.",
+                    "message": f"Pairing request sent. Please ensure terminal confirms pairing.",
                     "details": received_messages,
                 }
 
@@ -369,35 +402,84 @@ class CloverSnpdClient:
     ) -> Dict[str, Any]:
         """
         Transmits a card sale request to the Clover Flex over the local SNPD WebSocket.
-        Listens for the customer's card tap/insert/PIN and captures the final authorization result.
+        Executes required PAIRING_REQUEST handshake, then TX_START, and listens for FINISH_OK.
         """
-        sale_payload = {
-            "method": "SALE_REQUEST",
-            "type": "SALE",
-            "amount": int(amount_cents),
-            "currency": currency.upper(),
-            "externalPaymentId": external_payment_id,
-            "disableTip": not prompt_tip,
-            "disableReceiptSelection": not print_receipt,
-            "authToken": self.auth_token,
-            "authenticationToken": self.auth_token,
-            "requestId": str(uuid.uuid4()),
-        }
-
         ws = None
         try:
             ws = self._create_ws_connection(
                 self.ws_url,
-                timeout=60.0,  # 60s window for customer card interaction
+                timeout=60.0,
             )
-            ws.send(json.dumps(sale_payload))
 
-            start_time = time.time()
-            sale_result = None
+            # Step 1: Every WebSocket session to Clover SNPD must first authenticate via PAIRING_REQUEST
+            pair_payload = {
+                "method": "PAIRING_REQUEST",
+                "name": self.pos_id,
+                "serialNumber": self.device_serial,
+                "authenticationToken": self.auth_token,
+            }
+            ws.send(self._build_remote_message("PAIRING_REQUEST", pair_payload, req_id="PR-INIT"))
 
+            paired = False
+            start_pair = time.time()
             timeout_types = (socket.timeout, TimeoutError)
             if websocket is not None and hasattr(websocket, "WebSocketTimeoutException"):
                 timeout_types = (socket.timeout, TimeoutError, websocket.WebSocketTimeoutException)
+
+            while time.time() - start_pair < 10.0:
+                try:
+                    raw_msg = ws.recv()
+                except timeout_types:
+                    break
+                if not raw_msg:
+                    continue
+
+                method, payload, _ = self._unpack_message(raw_msg)
+                if method == "PAIRING_RESPONSE":
+                    pairing_state = payload.get("pairingState")
+                    if pairing_state in ("PAIRED", "INITIAL"):
+                        paired = True
+                        if payload.get("authenticationToken"):
+                            self.auth_token = payload["authenticationToken"]
+                        break
+                    elif pairing_state == "FAILED":
+                        raise CloverSnpdException("Clover terminal rejected pairing token. Please re-pair in Clover settings.")
+
+            if not paired and not self.auth_token:
+                raise CloverSnpdException("Terminal did not confirm pairing handshake.")
+
+            # Step 2: Dispatch TX_START command wrapped in RemoteMessage envelope
+            pay_intent = {
+                "action": "com.clover.remote.protocol.action.START_REMOTE_PROTOCOL_PAY",
+                "amount": int(amount_cents),
+                "tippableAmount": 0,
+                "tipAmount": 0,
+                "taxAmount": 0,
+                "transactionType": "PAYMENT",
+                "isDisableCashBack": True,
+                "isDisableTip": not prompt_tip,
+                "remotePrint": print_receipt,
+                "requiresRemoteConfirmation": True,
+                "externalPaymentId": external_payment_id,
+                "allowPartialAuth": False,
+                "transactionSettings": {
+                    "cloverShouldHandleReceipts": print_receipt,
+                    "autoAcceptPaymentConfirmations": True,
+                    "autoAcceptSignature": True,
+                    "disableDuplicateCheck": True,
+                },
+            }
+            tx_payload = {
+                "method": "TX_START",
+                "payIntent": pay_intent,
+                "requestInfo": "SALE",
+                "suppressOnScreenTips": not prompt_tip,
+            }
+            ws.send(self._build_remote_message("TX_START", tx_payload))
+
+            # Step 3: Listen for payment lifecycle events
+            start_time = time.time()
+            sale_result = None
 
             while time.time() - start_time < 60.0:
                 try:
@@ -408,38 +490,46 @@ class CloverSnpdClient:
                 if not raw_msg:
                     continue
 
-                try:
-                    msg = json.loads(raw_msg)
-                except Exception:
+                method, payload, _ = self._unpack_message(raw_msg)
+                if not method:
                     continue
 
-                # Inspect message method/type for completion
-                method = msg.get("method") or msg.get("type")
+                _logger.info("Clover SNPD event received: %s", method)
+
+                # Auto-confirm payment if terminal requests remote confirmation
+                if method in ("CONFIRM_PAYMENT", "CONFIRM_PAYMENT_MESSAGE"):
+                    confirm_payload = {"payment": payload.get("payment", {})}
+                    ws.send(self._build_remote_message("CONFIRM_PAYMENT", confirm_payload))
+                    continue
+
+                # Transaction completed successfully
+                if method == "FINISH_OK":
+                    sale_result = payload.get("payment") or payload
+                    break
+
+                # Transaction cancelled or rejected by customer / terminal
+                if method == "FINISH_CANCEL":
+                    cancel_reason = payload.get("requestInfo") or payload.get("reason") or "Cancelled by user"
+                    raise CloverSnpdException(f"Transaction cancelled on Clover: {cancel_reason}")
+
+                # Fallback for standard or direct responses
                 if method in ("SALE_RESPONSE", "PAYMENT_RESPONSE", "TX_COMPLETE"):
-                    sale_result = msg
+                    sale_result = payload
                     break
 
             if not sale_result:
                 raise CloverSnpdException("Transaction timed out waiting for customer card entry on terminal.")
 
             # Parse payment outcome
-            success = (
-                sale_result.get("result") in ("SUCCESS", "APPROVED")
-                or sale_result.get("status") in ("SUCCESS", "APPROVED")
-                or sale_result.get("response", {}).get("result") == "SUCCESS"
-            )
-
             payment_id = (
-                sale_result.get("paymentId")
-                or sale_result.get("id")
-                or sale_result.get("payment", {}).get("id")
+                sale_result.get("id")
+                or sale_result.get("paymentId")
                 or f"SNPD_{external_payment_id[:8]}"
             )
-
-            card_tx = sale_result.get("cardTransaction") or sale_result.get("payment", {}).get("cardTransaction") or {}
+            card_tx = sale_result.get("cardTransaction") or {}
 
             return {
-                "result": "SUCCESS" if success else "FAILED",
+                "result": "SUCCESS",
                 "id": payment_id,
                 "amount": amount_cents,
                 "currency": currency,
@@ -452,7 +542,6 @@ class CloverSnpdClient:
                 },
                 "raw_response": sale_result,
             }
-
         except Exception as exc:
             _logger.error("SNPD Sale transaction error: %s", str(exc))
             raise CloverSnpdException(f"SNPD Transaction failed: {str(exc)}") from exc
@@ -462,3 +551,7 @@ class CloverSnpdClient:
                     ws.close()
                 except Exception:
                     pass
+
+
+
+

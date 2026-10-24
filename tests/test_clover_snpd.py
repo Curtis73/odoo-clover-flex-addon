@@ -85,17 +85,26 @@ class TestCloverSnpdClient(unittest.TestCase):
     def test_send_sale_request_approved(self, mock_ws_create):
         """Verify sale transaction captures card metadata and approved status."""
         mock_ws = MagicMock()
-        mock_ws.recv.return_value = json.dumps({
-            "method": "SALE_RESPONSE",
-            "result": "SUCCESS",
-            "id": "CLV_PAY_12345",
-            "cardTransaction": {
-                "cardType": "VISA",
-                "last4": "4242",
-                "authCode": "AUTH_9876",
-                "entryType": "CHIP_CONTACTLESS",
-            },
+        mock_pair_resp = json.dumps({
+            "method": "PAIRING_RESPONSE",
+            "payload": json.dumps({"pairingState": "PAIRED", "authenticationToken": "test_token_123"}),
         })
+        mock_finish_ok = json.dumps({
+            "method": "FINISH_OK",
+            "payload": json.dumps({
+                "payment": {
+                    "id": "CLV_PAY_12345",
+                    "amount": 2500,
+                    "cardTransaction": {
+                        "cardType": "VISA",
+                        "last4": "4242",
+                        "authCode": "AUTH_9876",
+                        "entryType": "CHIP_CONTACTLESS",
+                    },
+                }
+            }),
+        })
+        mock_ws.recv.side_effect = [mock_pair_resp, mock_finish_ok]
         mock_ws_create.return_value = mock_ws
 
         res = self.client.send_sale_request(
