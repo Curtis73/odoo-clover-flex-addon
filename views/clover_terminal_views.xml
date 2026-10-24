@@ -74,10 +74,17 @@
         </field>
     </record>
 
-    <!-- Menu under POS Configuration -->
-    <menuitem id="menu_clover_terminal"
-              name="Clover Terminals"
+    <!-- Clover Subheading under POS Configuration -->
+    <menuitem id="menu_clover_root"
+              name="Clover"
               parent="point_of_sale.menu_point_config_product"
+              sequence="100"/>
+
+    <!-- Clover Terminals Menu -->
+    <menuitem id="menu_clover_terminal"
+              name="Terminals"
+              parent="menu_clover_root"
               action="action_clover_terminal"
-              sequence="110"/>
+              sequence="1"/>
+
 </odoo>
