@@ -5,7 +5,7 @@
         <field name="model">pos.payment.method</field>
         <field name="inherit_id" ref="point_of_sale.pos_payment_method_view_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//group[@name='payment_terminal']" position="after">
+            <xpath expr="//field[@name='use_payment_terminal']" position="after">
                 <group string="Clover Cloud Pay Configuration"
                        invisible="use_payment_terminal != 'clover_cloud'">
                     <group string="Device &amp; Gateway">
@@ -14,8 +14,7 @@
                         <field name="clover_environment"
                                required="use_payment_terminal == 'clover_cloud'"/>
                         <field name="clover_merchant_id"
-                               placeholder="e.g. 13-character merchant ID"
-                               required="use_payment_terminal == 'clover_cloud'"/>
+                               placeholder="e.g. 13-character merchant ID (Optional)"/>
                         <field name="clover_api_token"
                                password="True"
                                placeholder="Clover OAuth Bearer Token"
