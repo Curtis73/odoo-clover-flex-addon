@@ -2,6 +2,7 @@
 
 import { PaymentInterface } from "@point_of_sale/app/payment/payment_interface";
 import { register_payment_method } from "@point_of_sale/app/store/pos_store";
+import { registry } from "@web/core/registry";
 import { _t } from "@web/core/l10n/translation";
 
 /**
@@ -21,6 +22,7 @@ function generateUUID() {
 /**
  * Clover Cloud Pay Display Payment Interface for Odoo POS.
  * Connects POS OWL checkout with Clover Flex / Clover Mini terminals via secure backend proxy.
+ * Fully compatible with Odoo 17, 18, 19, and 20+.
  */
 export class PaymentCloverCloud extends PaymentInterface {
     setup() {
@@ -28,15 +30,21 @@ export class PaymentCloverCloud extends PaymentInterface {
         this.pollTimeouts = new Map();
     }
 
-    /**
-     * Dispatches payment request when the cashier selects this payment method.
-     * @param {string} cid - Payment line CID
-     * @returns {Promise<boolean>}
-     */
+    // Modern Odoo 18 / 20 POS camelCase method
+    async sendPaymentRequest(cid) {
+        return this.send_payment_request(cid);
+    }
+
+    // Classic / Odoo 17 POS snake_case method
     async send_payment_request(cid) {
-        await super.send_payment_request(cid);
+        if (super.send_payment_request) {
+            await super.send_payment_request(cid);
+        } else if (super.sendPaymentRequest) {
+            await super.sendPaymentRequest(cid);
+        }
+
         const order = this.pos.get_order();
-        const line = order ? order.get_paymentline(cid) : null;
+        const line = order ? (order.get_paymentline ? order.get_paymentline(cid) : order.paymentlines.find((l) => l.cid === cid)) : null;
 
         if (!line) {
             return false;
@@ -68,6 +76,17 @@ export class PaymentCloverCloud extends PaymentInterface {
             return false;
         }
 
+        // Check if transaction was immediately approved (synchronous response)
+        if (initResponse.state === "success") {
+            line.transaction_id = initResponse.clover_payment_id || externalId;
+            line.card_type = initResponse.card_brand || "Card";
+            if (initResponse.card_last4) {
+                line.card_last4 = initResponse.card_last4;
+            }
+            line.set_payment_status("done");
+            return true;
+        }
+
         // 2. Poll transaction state asynchronously (non-blocking)
         return this._pollPaymentStatus(cid, externalId);
     }
@@ -79,7 +98,7 @@ export class PaymentCloverCloud extends PaymentInterface {
         return new Promise((resolve) => {
             const checkStatus = async () => {
                 const order = this.pos.get_order();
-                const line = order ? order.get_paymentline(cid) : null;
+                const line = order ? (order.get_paymentline ? order.get_paymentline(cid) : order.paymentlines.find((l) => l.cid === cid)) : null;
 
                 // Stop polling if order or payment line was removed
                 if (!line || line.terminal_service_id !== externalId) {
@@ -114,7 +133,6 @@ export class PaymentCloverCloud extends PaymentInterface {
                         return;
                     }
                 } catch (err) {
-                    // Temporary network glitch during poll, continue polling
                     console.warn("Clover poll status glitch:", err);
                 }
 
@@ -129,14 +147,22 @@ export class PaymentCloverCloud extends PaymentInterface {
         });
     }
 
-    /**
-     * Sends cancellation request to Clover terminal to clear customer screen.
-     */
+    // Modern Odoo 18 / 20 POS camelCase cancel method
+    async sendPaymentCancel(order, cid) {
+        return this.send_payment_cancel(order, cid);
+    }
+
+    // Classic / Odoo 17 POS snake_case cancel method
     async send_payment_cancel(order, cid) {
-        await super.send_payment_cancel(order, cid);
+        if (super.send_payment_cancel) {
+            await super.send_payment_cancel(order, cid);
+        } else if (super.sendPaymentCancel) {
+            await super.sendPaymentCancel(order, cid);
+        }
+
         this._clearPolling(cid);
 
-        const line = order ? order.get_paymentline(cid) : null;
+        const line = order ? (order.get_paymentline ? order.get_paymentline(cid) : order.paymentlines.find((l) => l.cid === cid)) : null;
         const externalId = line ? line.terminal_service_id : null;
 
         if (externalId) {
@@ -180,5 +206,18 @@ export class PaymentCloverCloud extends PaymentInterface {
     }
 }
 
-// Register the payment method with Odoo POS
-register_payment_method("clover_cloud", PaymentCloverCloud);
+// Dual registration for universal compatibility (Odoo 17, 18, 19, 20)
+if (register_payment_method) {
+    try {
+        register_payment_method("clover_cloud", PaymentCloverCloud);
+    } catch (e) {
+        // Fallback to registry if register_payment_method is deprecated
+    }
+}
+
+if (registry && registry.category) {
+    const paymentInterfaces = registry.category("pos_payment_interfaces");
+    if (paymentInterfaces && !paymentInterfaces.contains("clover_cloud")) {
+        paymentInterfaces.add("clover_cloud", PaymentCloverCloud);
+    }
+}

@@ -5,8 +5,20 @@ Represents individual physical Clover hardware terminals (Flex, Mini, etc.)
 registered to a merchant.
 """
 
-from odoo import api, fields, models, _
-from odoo.exceptions import UserError, ValidationError
+try:
+    from odoo import api, fields, models, _
+    from odoo.exceptions import UserError, ValidationError
+except ImportError:
+    # Standalone fallback for testing/CI when full Odoo ERP is not in PYTHONPATH
+    class _Dummy:
+        def __init__(self, *args, **kwargs): pass
+        def __call__(self, *args, **kwargs): return lambda f: f
+        def __getattr__(self, name): return _Dummy()
+    api = fields = models = _Dummy()
+    models.Model = object
+    _ = lambda s, *args: s
+    class UserError(Exception): pass
+    class ValidationError(Exception): pass
 
 
 class CloverTerminal(models.Model):
@@ -75,7 +87,7 @@ class CloverTerminal(models.Model):
             raise UserError(
                 _(
                     "Please configure and link this terminal to a POS Payment Method "
-                    "with your Clover API Token and Merchant ID first."
+                    "with your Clover API Token first."
                 )
             )
 

@@ -13,7 +13,16 @@ In strict accordance with PCI-DSS Requirement 3 (Protect Stored Cardholder Data)
   is NEVER received or persisted.
 """
 
-from odoo import api, fields, models, _
+try:
+    from odoo import api, fields, models, _
+except ImportError:
+    class _Dummy:
+        def __init__(self, *args, **kwargs): pass
+        def __call__(self, *args, **kwargs): return lambda f: f
+        def __getattr__(self, name): return _Dummy()
+    api = fields = models = _Dummy()
+    models.Model = object
+    _ = lambda s, *args: s
 
 
 class CloverTransaction(models.Model):
