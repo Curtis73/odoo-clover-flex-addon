@@ -7,25 +7,26 @@
         <field name="arch" type="xml">
             <form string="Clover Terminal">
                 <header>
+                    <field name="is_paired" invisible="1"/>
                     <button name="action_pair_terminal"
                             string="Pair Terminal"
                             type="object"
                             class="btn-primary"
                             icon="fa-key"
-                            invisible="connection_mode != 'snpd' or pairing_auth_token"/>
+                            invisible="connection_mode != 'snpd' or is_paired"/>
                     <button name="action_unpair_terminal"
-                            string="Clear Token / Unpair"
+                            string="Unpair Terminal"
                             type="object"
                             class="btn-secondary"
                             icon="fa-unlink"
-                            invisible="connection_mode != 'snpd' or not pairing_auth_token"
-                            confirm="Are you sure you want to remove the pairing token?"/>
+                            invisible="connection_mode != 'snpd' or not is_paired"
+                            confirm="Are you sure you want to unpair this terminal?"/>
                     <button name="action_send_test_payment"
                             string="Test £0.01 Sale"
                             type="object"
                             class="btn-success"
                             icon="fa-credit-card"
-                            invisible="connection_mode != 'snpd' or not pairing_auth_token"/>
+                            invisible="connection_mode != 'snpd' or not is_paired"/>
                     <button name="action_test_terminal_connection"
                             string="Test Connection"
                             type="object"
@@ -44,7 +45,7 @@
                     </div>
                     <group>
                         <group string="Hardware Specifications">
-                            <field name="device_serial" placeholder="e.g. C143EQ20230587"/>
+                            <field name="device_serial" placeholder="e.g. C143EQ202030587"/>
                             <field name="model"/>
                             <field name="company_id" groups="base.group_multi_company"/>
                             <field name="active" widget="boolean_toggle"/>
@@ -63,9 +64,6 @@
                             <field name="pairing_code"
                                    invisible="connection_mode != 'snpd' or not pairing_code"
                                    readonly="1"/>
-                            <field name="pairing_auth_token"
-                                   invisible="connection_mode != 'snpd'"
-                                   placeholder="Paste token or full QR code text here"/>
                         </group>
                     </group>
                     <group>
