@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Clover Transaction Form View (Read-only for audit integrity) -->
+    <!-- Clover Transaction Form View -->
     <record id="view_clover_transaction_form" model="ir.ui.view">
         <field name="name">clover.transaction.form</field>
         <field name="model">clover.transaction</field>
@@ -41,7 +41,7 @@
         </field>
     </record>
 
-    <!-- Clover Transaction List View (Odoo 20 <list> standard) -->
+    <!-- Clover Transaction List View -->
     <record id="view_clover_transaction_list" model="ir.ui.view">
         <field name="name">clover.transaction.list</field>
         <field name="model">clover.transaction</field>
@@ -63,7 +63,7 @@
         </field>
     </record>
 
-    <!-- Search View -->
+    <!-- Clover Transaction Search View (Clean Odoo 20 syntax) -->
     <record id="view_clover_transaction_search" model="ir.ui.view">
         <field name="name">clover.transaction.search</field>
         <field name="model">clover.transaction</field>
@@ -73,15 +73,9 @@
                 <field name="clover_payment_id"/>
                 <field name="auth_code"/>
                 <field name="clover_terminal_id"/>
-                <separator/>
                 <filter string="Approved" name="approved" domain="[('state', '=', 'success')]"/>
                 <filter string="Pending" name="pending" domain="[('state', '=', 'pending')]"/>
-                <filter string="Failed" name="failed" domain="[('state', 'in', ('failed', 'cancelled'))]"/>
-                <group expand="0" string="Group By">
-                    <filter string="Terminal" name="group_by_terminal" context="{'group_by': 'clover_terminal_id'}"/>
-                    <filter string="Status" name="group_by_state" context="{'group_by': 'state'}"/>
-                    <filter string="Date" name="group_by_date" context="{'group_by': 'create_date'}"/>
-                </group>
+                <filter string="Failed" name="failed" domain="[('state', 'in', ['failed', 'cancelled'])]"/>
             </search>
         </field>
     </record>
@@ -92,7 +86,6 @@
         <field name="res_model">clover.transaction</field>
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="view_clover_transaction_search"/>
-        <field name="context">{'search_default_approved': 1}</field>
     </record>
 
     <!-- Menu under POS Orders -->
