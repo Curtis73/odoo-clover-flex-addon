@@ -15,10 +15,20 @@ class PosPaymentMethod(models.Model):
     _inherit = "pos.payment.method"
 
     def _get_payment_terminal_selection(self):
-        return super()._get_payment_terminal_selection() + [
-            ("clover_cloud", _("Clover Cloud Pay (Flex / Mini)"))
-        ]
+        try:
+            res = super()._get_payment_terminal_selection()
+        except AttributeError:
+            res = [("none", _("None"))]
+        if not any(code == "clover_cloud" for code, _label in res):
+            res.append(("clover_cloud", _("Clover Cloud Pay (Flex / Mini)")))
+        return res
 
+    use_payment_terminal = fields.Selection(
+        selection=_get_payment_terminal_selection,
+        string="Payment Terminal",
+        default="none",
+        help="Select whether this payment method connects to a card terminal.",
+    )
 
     clover_terminal_id = fields.Many2one(
         "clover.terminal",
