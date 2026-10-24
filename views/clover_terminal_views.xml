@@ -8,7 +8,7 @@
             <form string="Clover Terminal">
                 <header>
                     <button name="action_test_terminal_connection"
-                            string="Test Cloud Connection"
+                            string="Test Connection"
                             type="object"
                             class="oe_highlight"
                             icon="fa-wifi"/>
@@ -30,6 +30,20 @@
                             <field name="company_id" groups="base.group_multi_company"/>
                             <field name="active" widget="boolean_toggle"/>
                         </group>
+                        <group string="Connection Setup">
+                            <field name="connection_mode" widget="radio"/>
+                            <field name="ip_address"
+                                   invisible="connection_mode != 'lan'"
+                                   required="connection_mode == 'lan'"
+                                   placeholder="e.g. 192.168.1.150"/>
+                            <field name="port"
+                                   invisible="connection_mode != 'lan'"
+                                   required="connection_mode == 'lan'"/>
+                            <field name="use_https"
+                                   invisible="connection_mode != 'lan'"/>
+                        </group>
+                    </group>
+                    <group>
                         <group string="Diagnostics">
                             <field name="last_heartbeat"/>
                             <field name="notes" placeholder="Notes on location, Wi-Fi network, etc."/>
@@ -49,6 +63,8 @@
                 <field name="name"/>
                 <field name="device_serial"/>
                 <field name="model"/>
+                <field name="connection_mode"/>
+                <field name="ip_address"/>
                 <field name="last_status" widget="badge"
                        decoration-success="last_status and 'Online' in last_status"
                        decoration-danger="last_status and 'Error' in last_status"/>

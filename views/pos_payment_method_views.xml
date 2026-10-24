@@ -9,19 +9,23 @@
                 <group string="Payment Terminal">
                     <field name="use_payment_terminal"/>
                 </group>
-                <group string="Clover Cloud Pay Configuration"
+                <group string="Clover Terminal Configuration"
                        invisible="use_payment_terminal != 'clover_cloud'">
-                    <group string="Device &amp; Gateway">
+                    <field name="clover_terminal_mode" invisible="1"/>
+                    <group string="Device Selection">
                         <field name="clover_terminal_id"
                                required="use_payment_terminal == 'clover_cloud'"/>
+                    </group>
+                    <group string="Cloud Gateway Setup"
+                           invisible="clover_terminal_mode != 'cloud'">
                         <field name="clover_environment"
-                               required="use_payment_terminal == 'clover_cloud'"/>
+                               required="use_payment_terminal == 'clover_cloud' and clover_terminal_mode == 'cloud'"/>
                         <field name="clover_merchant_id"
                                placeholder="e.g. 13-character merchant ID (Optional)"/>
                         <field name="clover_api_token"
                                password="True"
                                placeholder="Clover OAuth Bearer Token"
-                               required="use_payment_terminal == 'clover_cloud'"/>
+                               required="use_payment_terminal == 'clover_cloud' and clover_terminal_mode == 'cloud'"/>
                     </group>
                     <group string="Terminal Behavior">
                         <field name="clover_allow_tip"/>

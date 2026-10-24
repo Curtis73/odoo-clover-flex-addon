@@ -46,6 +46,27 @@ class TestPosPaymentMethodClover(unittest.TestCase):
         pm.company_id.currency_id.decimal_places = 0
         self.assertEqual(pm._amount_to_cents(1500), 1500)
 
+    def test_lan_mode_client_configuration(self):
+        """Verify that LAN connection mode builds the correct local HTTPS endpoint."""
+        pm = PosPaymentMethod()
+        pm.id = 42
+        pm.clover_api_token = "local_auth_test"
+        pm.clover_merchant_id = ""
+        pm.clover_environment = "prod_eu"
+        pm.ensure_one = MagicMock()
+
+        terminal = MagicMock()
+        terminal.connection_mode = "lan"
+        terminal.ip_address = "192.168.1.150"
+        terminal.port = 12346
+        terminal.use_https = True
+        pm.clover_terminal_id = terminal
+
+        client = pm._get_clover_client()
+        self.assertEqual(client.base_url, "https://192.168.1.150:12346")
+        self.assertFalse(client.verify_ssl)
+        self.assertEqual(client.api_token, "local_auth_test")
+
 
 if __name__ == "__main__":
     unittest.main()

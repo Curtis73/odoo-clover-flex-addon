@@ -36,6 +36,11 @@ class PosPaymentMethod(models.Model):
         domain="[('company_id', '=', company_id), ('active', '=', True)]",
         help="Physical Clover Flex or Mini device assigned to this payment method.",
     )
+    clover_terminal_mode = fields.Selection(
+        related="clover_terminal_id.connection_mode",
+        string="Terminal Connection Mode",
+        readonly=True,
+    )
     clover_environment = fields.Selection(
         selection=[
             ("sandbox", "Sandbox (dev.clover.com)"),
@@ -72,18 +77,32 @@ class PosPaymentMethod(models.Model):
         for pm in self:
             if pm.use_payment_terminal == "clover_cloud":
                 if not pm.clover_terminal_id:
-                    raise ValidationError(_("You must select a Clover Terminal for Clover Cloud Pay."))
-                if not pm.clover_api_token:
-                    raise ValidationError(_("Clover API Token is required."))
+                    raise ValidationError(_("You must select a Clover Terminal for Clover Pay."))
+                if pm.clover_terminal_id.connection_mode == "cloud" and not pm.clover_api_token:
+                    raise ValidationError(_("Clover API Token is required when the terminal is in Cloud mode."))
+                if pm.clover_terminal_id.connection_mode == "lan" and not pm.clover_terminal_id.ip_address:
+                    raise ValidationError(_("Please configure the Terminal IP Address on the selected Clover Terminal."))
 
     def _get_clover_client(self) -> CloverApiClient:
         """Instantiates a configured CloverApiClient for this payment method."""
         self.ensure_one()
+        terminal = self.clover_terminal_id
+        custom_base_url = None
+        verify_ssl = True
+
+        if terminal and terminal.connection_mode == "lan":
+            scheme = "https" if terminal.use_https else "http"
+            port = terminal.port or 12346
+            custom_base_url = f"{scheme}://{terminal.ip_address.strip()}:{port}"
+            verify_ssl = False
+
         return CloverApiClient(
-            api_token=self.clover_api_token,
+            api_token=self.clover_api_token or "",
             merchant_id=self.clover_merchant_id,
             environment=self.clover_environment or "prod_eu",
             pos_id=f"Odoo20-POS-{self.id}",
+            custom_base_url=custom_base_url,
+            verify_ssl=verify_ssl,
         )
 
     def _amount_to_cents(self, amount: float) -> int:

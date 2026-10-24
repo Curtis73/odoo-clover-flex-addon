@@ -22,6 +22,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+import urllib3
+
 _logger = logging.getLogger(__name__)
 
 # Sanitization patterns to ensure PCI-DSS log safety
@@ -75,27 +77,26 @@ class CloverApiClient:
 
     def __init__(
         self,
-        api_token: str,
+        api_token: Optional[str] = None,
         merchant_id: Optional[str] = None,
         environment: str = "prod_eu",
         pos_id: str = "Odoo-POS-Terminal",
         custom_base_url: Optional[str] = None,
         timeout: Tuple[float, float] = (5.0, 35.0),
+        verify_ssl: bool = True,
     ):
         """
         Initialize the Clover API Client.
 
-        :param api_token: Clover OAuth API Token (Bearer)
+        :param api_token: Clover OAuth API Token (Bearer) or local auth token
         :param merchant_id: Optional Merchant ID (mId)
         :param environment: 'sandbox', 'prod_us', or 'prod_eu' (UK/EU)
         :param pos_id: Identifier for the calling POS station
-        :param custom_base_url: Optional custom URL override for testing/gateways
+        :param custom_base_url: Optional custom URL override for local LAN / gateways
         :param timeout: Tuple of (connect_timeout, read_timeout) in seconds
+        :param verify_ssl: Whether to verify SSL certificates (set False for local LAN HTTPS)
         """
-        if not api_token:
-            raise ValueError("Clover API token is strictly required.")
-
-        raw_token = api_token.strip()
+        raw_token = (api_token or "").strip()
         if raw_token.lower().startswith("bearer "):
             raw_token = raw_token[7:].strip()
         self.api_token = raw_token
@@ -108,6 +109,10 @@ class CloverApiClient:
             else self.ENDPOINTS.get(environment, self.ENDPOINTS["prod_eu"])
         )
         self.timeout = timeout
+        self.verify_ssl = verify_ssl
+
+        if not self.verify_ssl:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
         # Configure high-performance session with connection pooling
         self.session = requests.Session()
@@ -126,14 +131,15 @@ class CloverApiClient:
         self.session.mount("http://", adapter)
 
     def _get_headers(self, device_serial: str, with_idempotency: bool = False) -> Dict[str, str]:
-        """Generate mandatory Clover Cloud headers including target device serial."""
+        """Generate mandatory Clover headers including target device serial."""
         headers = {
-            "Authorization": f"Bearer {self.api_token}",
             "X-Clover-Device-Id": device_serial.strip(),
             "X-POS-Id": self.pos_id,
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
+        if self.api_token:
+            headers["Authorization"] = f"Bearer {self.api_token}"
         if with_idempotency:
             headers["Idempotency-Key"] = str(uuid.uuid4())
         return headers
@@ -148,7 +154,7 @@ class CloverApiClient:
         with_idempotency: bool = False,
     ) -> Dict[str, Any]:
         """
-        Executes an authenticated HTTP request to Clover Cloud with PCI-safe error handling.
+        Executes an authenticated HTTP request to Clover with PCI-safe error handling.
         """
         url = f"{self.base_url}{path}"
         headers = self._get_headers(device_serial, with_idempotency=with_idempotency)
@@ -170,6 +176,7 @@ class CloverApiClient:
                 json=payload,
                 params=params,
                 timeout=self.timeout,
+                verify=self.verify_ssl,
             )
         except requests.exceptions.Timeout as exc:
             _logger.error("Clover API timeout contacting %s: %s", url, str(exc))
