@@ -222,7 +222,7 @@ class CloverSnpdClient:
             "id": msg_id,
             "method": method,
             "type": "COMMAND",
-            "packageName": "com.clover.remote.client.messages",
+            "packageName": "com.clover.remote_protocol_broadcast.app",
             "payload": payload_str,
             "remoteSourceSDK": "com.clover.remote-pay-android",
             "remoteApplicationID": f"{self.pos_id}:1.0",
