@@ -214,14 +214,7 @@ class PosPaymentMethod(models.Model):
                         terminal.name,
                     ),
                 }
-            snpd_client = CloverSnpdClient(
-                ip_address=terminal.ip_address,
-                port=terminal.port or 12345,
-                use_ssl=terminal.use_https,
-                auth_token=terminal.pairing_auth_token,
-                device_serial=terminal.device_serial,
-                pos_id=f"Odoo-POS-{pm.id}",
-            )
+            snpd_client = terminal._make_snpd_client(timeout=60.0)
             amount_cents = pm._amount_to_cents(amount)
             try:
                 response = snpd_client.send_sale_request(
@@ -231,6 +224,8 @@ class PosPaymentMethod(models.Model):
                     prompt_tip=pm.clover_allow_tip,
                     print_receipt=pm.clover_auto_print_receipt,
                 )
+                if snpd_client.auth_token and snpd_client.auth_token != terminal.pairing_auth_token:
+                    terminal.sudo().write({"pairing_auth_token": snpd_client.auth_token})
                 result_code = response.get("result") or ""
                 if result_code.upper() in ("SUCCESS", "APPROVED"):
                     card_tx = response.get("cardTransaction", {})

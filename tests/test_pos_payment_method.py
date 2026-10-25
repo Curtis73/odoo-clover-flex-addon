@@ -18,6 +18,8 @@ try:
     from .odoo_mock import setup_odoo_mock
 except ImportError:
     from odoo_mock import setup_odoo_mock
+
+from services.clover_snpd_client import CloverSnpdClient
 setup_odoo_mock()
 
 from models.pos_payment_method import PosPaymentMethod
@@ -98,6 +100,14 @@ class TestPosPaymentMethodClover(unittest.TestCase):
         terminal.port = 12345
         terminal.use_https = False
         terminal.pairing_auth_token = "valid_pairing_token_abc"
+        terminal._make_snpd_client.return_value = CloverSnpdClient(
+            ip_address=terminal.ip_address,
+            port=terminal.port,
+            use_ssl=terminal.use_https,
+            auth_token=terminal.pairing_auth_token,
+            device_serial=terminal.device_serial,
+            pos_id=f"Odoo-POS-{terminal.device_serial}",
+        )
         pm_record.clover_terminal_id = terminal
 
         mock_tx = MagicMock()

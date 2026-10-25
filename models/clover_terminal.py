@@ -146,6 +146,11 @@ class CloverTerminal(models.Model):
                 pass
         self.pairing_auth_token = raw
 
+    def _get_snpd_pos_id(self) -> str:
+        """Single canonical identifier tied to the terminal serial for permanent Clover pairing."""
+        self.ensure_one()
+        return f"Odoo-POS-{self.device_serial or self.id}"
+
     def _make_snpd_client(self, timeout: float = 10.0) -> "CloverSnpdClient":
         """Create a CloverSnpdClient from this terminal record."""
         return CloverSnpdClient(
@@ -154,7 +159,7 @@ class CloverTerminal(models.Model):
             use_ssl=self.use_https,
             auth_token=(self.pairing_auth_token or "").strip(),
             device_serial=self.device_serial,
-            pos_id=f"Odoo-POS-{self.name}",
+            pos_id=self._get_snpd_pos_id(),
             timeout=timeout,
         )
 
@@ -351,14 +356,7 @@ class CloverTerminal(models.Model):
         if self.connection_mode == "snpd":
             if not self.ip_address:
                 raise UserError(_("Please enter the Device IP Address for SNPD mode."))
-            port = self.port or 12345
-            snpd = CloverSnpdClient(
-                ip_address=self.ip_address,
-                port=port,
-                use_ssl=self.use_https,
-                auth_token=self.pairing_auth_token,
-                device_serial=self.device_serial,
-            )
+            snpd = self._make_snpd_client()
             res = snpd.test_tcp_connection()
             if res.get("success"):
                 status_label = "Online / Paired (SNPD)" if self.is_paired else "Online / Ready to Pair (SNPD)"
