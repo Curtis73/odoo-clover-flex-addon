@@ -53,7 +53,61 @@ export class PaymentCloverCloud extends PaymentInterface {
             line.setPaymentStatus(status);
         } else if (typeof line.set_payment_status === "function") {
             line.set_payment_status(status);
+        } else {
+            line.payment_status = status;
         }
+    }
+
+    /**
+     * Resolves the PosPayment line from varying Odoo version call signatures.
+     * In Odoo 20+, cancelPayment/sendPaymentRequest passes `this` (the line itself) as primary arg.
+     * In earlier Odoo versions, (order, cid_or_line) or (cid) was passed.
+     */
+    _resolvePaymentLine(...args) {
+        const [arg1, arg2] = args;
+
+        // 1. Direct line object check
+        if (arg1 && typeof arg1 === "object" && (arg1.payment_method_id || arg1.terminal_service_id || arg1.amount !== undefined)) {
+            return arg1;
+        }
+        if (arg2 && typeof arg2 === "object" && (arg2.payment_method_id || arg2.terminal_service_id || arg2.amount !== undefined)) {
+            return arg2;
+        }
+
+        // 2. Identify possible UUID/CID string
+        const identifier = (typeof arg2 === "string" ? arg2 : (typeof arg1 === "string" ? arg1 : null));
+
+        // 3. Check order
+        const currentOrder = (arg1 && typeof arg1 === "object" && !arg1.payment_method_id)
+            ? arg1
+            : (this.pos ? (typeof this.pos.get_order === "function" ? this.pos.get_order() : this.pos.selectedOrder) : null);
+
+        if (currentOrder) {
+            if (identifier && typeof currentOrder.getPaymentlineByUuid === "function") {
+                const found = currentOrder.getPaymentlineByUuid(identifier);
+                if (found) return found;
+            }
+            if (identifier && typeof currentOrder.get_paymentline === "function") {
+                try {
+                    const found = currentOrder.get_paymentline(identifier);
+                    if (found) return found;
+                } catch (_) {}
+            }
+            const lines = currentOrder.payment_ids || currentOrder.paymentlines || [];
+            if (Array.isArray(lines)) {
+                if (identifier) {
+                    const found = lines.find((p) => p.uuid === identifier || p.cid === identifier);
+                    if (found) return found;
+                }
+                const active = lines.find((p) => p.payment_status === "waitingCard" || p.payment_status === "waiting");
+                if (active) return active;
+            }
+            if (currentOrder.selected_paymentline) {
+                return currentOrder.selected_paymentline;
+            }
+        }
+
+        return (arg1 && typeof arg1 === "object") ? arg1 : (arg2 && typeof arg2 === "object" ? arg2 : null);
     }
 
     /**
@@ -69,20 +123,18 @@ export class PaymentCloverCloud extends PaymentInterface {
     /**
      * Polymorphic handler supporting both Odoo 20 (line object) and earlier (line CID).
      */
-    async send_payment_request(arg) {
-        return this.sendPaymentRequest(arg);
+    async send_payment_request(...args) {
+        return this.sendPaymentRequest(...args);
     }
 
-    async sendPaymentRequest(arg) {
+    async sendPaymentRequest(...args) {
         if (super.sendPaymentRequest) {
-            await super.sendPaymentRequest(...arguments);
+            await super.sendPaymentRequest(...args);
         } else if (super.send_payment_request) {
-            await super.send_payment_request(...arguments);
+            await super.send_payment_request(...args);
         }
 
-        const line = (typeof arg === "object" && arg !== null)
-            ? arg
-            : (this.pos.get_order() ? this.pos.get_order().get_paymentline(arg) : null);
+        const line = this._resolvePaymentLine(...args);
 
         if (!line) {
             return false;
@@ -199,20 +251,18 @@ export class PaymentCloverCloud extends PaymentInterface {
     /**
      * Sends cancellation signal to Clover terminal to clear customer screen.
      */
-    async send_payment_cancel(order, arg) {
-        return this.sendPaymentCancel(order, arg);
+    async send_payment_cancel(...args) {
+        return this.sendPaymentCancel(...args);
     }
 
-    async sendPaymentCancel(order, arg) {
+    async sendPaymentCancel(...args) {
         if (super.sendPaymentCancel) {
-            await super.sendPaymentCancel(...arguments);
+            await super.sendPaymentCancel(...args);
         } else if (super.send_payment_cancel) {
-            await super.send_payment_cancel(...arguments);
+            await super.send_payment_cancel(...args);
         }
 
-        const line = (typeof arg === "object" && arg !== null)
-            ? arg
-            : (order ? order.get_paymentline(arg) : null);
+        const line = this._resolvePaymentLine(...args);
 
         const lineKey = line ? (line.uuid || line.cid || "cancel_key") : "cancel_key";
         this._clearPolling(lineKey);
