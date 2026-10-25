@@ -358,11 +358,8 @@ class CloverSnpdClient:
                 if pairing_state in ("PAIRED", "INITIAL") and token_candidate:
                     auth_token = token_candidate
                     break
-                elif token_candidate:
-                    auth_token = token_candidate
-                    break
                 elif method == "PAIRING_SUCCESS":
-                    auth_token = payload.get("token") or str(uuid.uuid4())
+                    auth_token = payload.get("authToken") or payload.get("token") or str(uuid.uuid4())
                     break
 
             if auth_token:
