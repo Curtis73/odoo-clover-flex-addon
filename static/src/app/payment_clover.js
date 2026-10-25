@@ -16,6 +16,53 @@ export class PaymentCloverCloud extends PaymentInterface {
     }
 
     /**
+     * Resolves the numeric pos.payment.method ID across all Odoo POS versions.
+     */
+    getPaymentMethodId(line) {
+        if (line && line.payment_method_id) {
+            return typeof line.payment_method_id === "object"
+                ? line.payment_method_id.id
+                : line.payment_method_id;
+        }
+        if (this.payment_method_id) {
+            return typeof this.payment_method_id === "object"
+                ? this.payment_method_id.id
+                : this.payment_method_id;
+        }
+        if (this.payment_method) {
+            return typeof this.payment_method === "object"
+                ? this.payment_method.id
+                : this.payment_method;
+        }
+        return null;
+    }
+
+    /**
+     * Sets payment line status supporting both Odoo 20 (setPaymentStatus)
+     * and legacy Odoo (set_payment_status).
+     */
+    _setPaymentStatus(line, status) {
+        if (!line) {
+            return;
+        }
+        if (typeof line.setPaymentStatus === "function") {
+            line.setPaymentStatus(status);
+        } else if (typeof line.set_payment_status === "function") {
+            line.set_payment_status(status);
+        }
+    }
+
+    /**
+     * Wraps calls to pos.payment.method actions.
+     */
+    async _callCloverAction(method, params) {
+        if (typeof this.callPaymentMethod === "function") {
+            return await this.callPaymentMethod(method, params);
+        }
+        return await this.env.services.orm.silent.call("pos.payment.method", method, params);
+    }
+
+    /**
      * Polymorphic handler supporting both Odoo 20 (line object) and earlier (line CID).
      */
     async send_payment_request(arg) {
@@ -37,9 +84,15 @@ export class PaymentCloverCloud extends PaymentInterface {
             return false;
         }
 
+        const pmId = this.getPaymentMethodId(line);
+        if (!pmId) {
+            this._showError(_t("Could not identify payment method ID for Clover terminal."));
+            return false;
+        }
+
         const lineId = line.uuid || line.cid || "clover_line";
 
-        // Robust UUID v4 generation compatible with older embedded POS browsers (e.g. Citaq H10-2)
+        // Robust UUID v4 generation compatible with older embedded POS browsers
         const externalId = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
             ? crypto.randomUUID()
             : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
@@ -48,29 +101,22 @@ export class PaymentCloverCloud extends PaymentInterface {
                 return v.toString(16);
             });
         line.terminal_service_id = externalId;
-        if (line.set_payment_status) {
-            line.set_payment_status("waitingCard");
-        }
+        this._setPaymentStatus(line, "waitingCard");
 
         let initResponse;
         try {
-            initResponse = await this.env.services.orm.silent.call(
-                "pos.payment.method",
+            initResponse = await this._callCloverAction(
                 "action_clover_initiate_payment",
-                [this.payment_method.id, line.amount, externalId]
+                [pmId, line.amount, externalId]
             );
         } catch (error) {
-            if (line.set_payment_status) {
-                line.set_payment_status("retry");
-            }
+            this._setPaymentStatus(line, "retry");
             this._showError(_t("Failed to communicate with Odoo server: ") + (error.message || error));
             return false;
         }
 
         if (!initResponse || !initResponse.success) {
-            if (line.set_payment_status) {
-                line.set_payment_status("retry");
-            }
+            this._setPaymentStatus(line, "retry");
             this._showError((initResponse && initResponse.error) || _t("Could not contact Clover terminal."));
             return false;
         }
@@ -81,9 +127,11 @@ export class PaymentCloverCloud extends PaymentInterface {
             if (initResponse.card_last4) {
                 line.card_last4 = initResponse.card_last4;
             }
-            if (line.set_payment_status) {
-                line.set_payment_status("done");
+            if (typeof line.setReceiptInfo === "function") {
+                const info = `${initResponse.card_brand || "Card"} ****${initResponse.card_last4 || ""}\nAuth: ${initResponse.auth_code || "OK"}`;
+                line.setReceiptInfo(info);
             }
+            this._setPaymentStatus(line, "done");
             return true;
         }
 
@@ -95,6 +143,7 @@ export class PaymentCloverCloud extends PaymentInterface {
      */
     _pollPaymentStatus(line, externalId) {
         const lineKey = line.uuid || line.cid || externalId;
+        const pmId = this.getPaymentMethodId(line);
         return new Promise((resolve) => {
             const checkStatus = async () => {
                 if (!line || line.terminal_service_id !== externalId) {
@@ -104,10 +153,9 @@ export class PaymentCloverCloud extends PaymentInterface {
                 }
 
                 try {
-                    const res = await this.env.services.orm.silent.call(
-                        "pos.payment.method",
+                    const res = await this._callCloverAction(
                         "action_clover_check_status",
-                        [this.payment_method.id, externalId]
+                        [pmId, externalId]
                     );
 
                     if (res && res.state === "success") {
@@ -117,16 +165,16 @@ export class PaymentCloverCloud extends PaymentInterface {
                         if (res.card_last4) {
                             line.card_last4 = res.card_last4;
                         }
-                        if (line.set_payment_status) {
-                            line.set_payment_status("done");
+                        if (typeof line.setReceiptInfo === "function") {
+                            const info = `${res.card_brand || "Card"} ****${res.card_last4 || ""}\nAuth: ${res.auth_code || "OK"}`;
+                            line.setReceiptInfo(info);
                         }
+                        this._setPaymentStatus(line, "done");
                         resolve(true);
                         return;
                     } else if (res && (res.state === "failed" || res.state === "cancelled")) {
                         this._clearPolling(lineKey);
-                        if (line.set_payment_status) {
-                            line.set_payment_status("retry");
-                        }
+                        this._setPaymentStatus(line, "retry");
                         this._showError(res.error || _t("Payment declined or cancelled on the terminal."));
                         resolve(false);
                         return;
@@ -166,20 +214,20 @@ export class PaymentCloverCloud extends PaymentInterface {
         this._clearPolling(lineKey);
 
         const externalId = line ? line.terminal_service_id : null;
-        if (externalId) {
+        const pmId = this.getPaymentMethodId(line);
+        if (externalId && pmId) {
             try {
-                await this.env.services.orm.silent.call(
-                    "pos.payment.method",
+                await this._callCloverAction(
                     "action_clover_cancel_payment",
-                    [this.payment_method.id, externalId]
+                    [pmId, externalId]
                 );
             } catch (err) {
                 console.warn("Could not cancel Clover payment:", err);
             }
         }
 
-        if (line && line.set_payment_status) {
-            line.set_payment_status("retry");
+        if (line) {
+            this._setPaymentStatus(line, "retry");
         }
         return true;
     }
@@ -192,13 +240,15 @@ export class PaymentCloverCloud extends PaymentInterface {
     }
 
     _showError(message) {
-        if (this.env.services.dialog) {
-            this.env.services.dialog.add(AlertDialog, {
+        const dialog = this.dialog || this.env?.services?.dialog;
+        if (dialog) {
+            dialog.add(AlertDialog, {
                 title: _t("Clover Terminal"),
                 body: message,
             });
-        } else if (this.env.services.notification) {
-            this.env.services.notification.add(message, {
+        } else if (this.notification || this.env?.services?.notification) {
+            const notif = this.notification || this.env?.services?.notification;
+            notif.add(message, {
                 title: _t("Clover Terminal"),
                 type: "danger",
                 sticky: false,
