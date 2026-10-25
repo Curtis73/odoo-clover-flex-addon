@@ -228,7 +228,8 @@ class CloverTerminal(models.Model):
             success, token, msg = client.wait_for_pairing_token(ws, timeout=60.0)
             ACTIVE_PAIRING_SOCKETS.pop(terminal_id, None)
             try:
-                registry = odoo.registry(db_name)
+                from odoo.modules.registry import Registry
+                registry = Registry(db_name)
                 with registry.cursor() as cr:
                     env = api.Environment(cr, odoo.SUPERUSER_ID, {})
                     term = env["clover.terminal"].browse(terminal_id)
