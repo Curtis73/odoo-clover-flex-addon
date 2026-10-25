@@ -4,5 +4,3 @@ access_clover_terminal_manager,clover.terminal.manager,clover.terminal,point_of_
 access_clover_transaction_user,clover.transaction.user,clover.transaction,point_of_sale.group_pos_user,r,
 access_clover_transaction_manager,clover.transaction.manager,clover.transaction,point_of_sale.group_pos_manager,r,
 access_clover_transaction_admin,clover.transaction.admin,clover.transaction,base.group_system,r,
-access_clover_pairing_wizard_manager,clover.pairing.wizard.manager,clover.pairing.wizard,point_of_sale.group_pos_manager,crud,
-access_clover_pairing_wizard_user,clover.pairing.wizard.user,clover.pairing.wizard,point_of_sale.group_pos_user,crud,

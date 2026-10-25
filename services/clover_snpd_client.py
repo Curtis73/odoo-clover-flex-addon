@@ -306,11 +306,18 @@ class CloverSnpdClient:
             except Exception:
                 pass
 
-    def initiate_pairing(self, pairing_code: str) -> Dict[str, Any]:
+    def initiate_pairing(self, auth_token: Optional[str] = None) -> Dict[str, Any]:
         """
-        Executes the initial pairing handshake with the Clover device.
-        Sends client identification and pairing challenge, expecting an authToken.
+        Executes the pairing / token authentication handshake with the Clover device.
+        Sends client identification and authenticationToken, verifying Clover accepts it.
         """
+        token_to_verify = (auth_token or self.auth_token or "").strip()
+        if not token_to_verify:
+            return {
+                "success": False,
+                "message": "No authentication token provided.",
+            }
+
         tcp_check = self.test_tcp_connection()
         if not tcp_check["success"]:
             return tcp_check
@@ -319,7 +326,7 @@ class CloverSnpdClient:
             "method": "PAIRING_REQUEST",
             "name": self.pos_id,
             "serialNumber": self.device_serial,
-            "authenticationToken": pairing_code or self.auth_token,
+            "authenticationToken": token_to_verify,
         }
 
         ws = None
@@ -328,7 +335,7 @@ class CloverSnpdClient:
             ws.send(self._build_remote_message("PAIRING_REQUEST", handshake_payload, req_id="PR-1"))
 
             start_time = time.time()
-            auth_token = None
+            confirmed_token = None
             received_messages = []
 
             timeout_types = (socket.timeout, TimeoutError)
@@ -355,24 +362,30 @@ class CloverSnpdClient:
                 )
 
                 pairing_state = payload.get("pairingState") or envelope.get("pairingState")
-                if pairing_state in ("PAIRED", "INITIAL") and token_candidate:
-                    auth_token = token_candidate
+                if pairing_state in ("PAIRED", "INITIAL"):
+                    confirmed_token = token_candidate or token_to_verify
                     break
                 elif method == "PAIRING_SUCCESS":
-                    auth_token = payload.get("authToken") or payload.get("token") or str(uuid.uuid4())
+                    confirmed_token = token_candidate or token_to_verify
                     break
+                elif pairing_state == "FAILED":
+                    return {
+                        "success": False,
+                        "message": "Clover device rejected the authentication token. Please verify the token under the QR code on the Clover screen.",
+                        "details": received_messages,
+                    }
 
-            if auth_token:
-                self.auth_token = auth_token
+            if confirmed_token:
+                self.auth_token = confirmed_token
                 return {
                     "success": True,
-                    "auth_token": auth_token,
-                    "message": f"Successfully paired with Clover terminal {self.device_serial}!",
+                    "auth_token": confirmed_token,
+                    "message": f"Successfully verified & paired with Clover terminal {self.device_serial}!",
                 }
             else:
                 return {
                     "success": False,
-                    "message": f"Pairing request sent. Please ensure terminal confirms pairing.",
+                    "message": "Pairing request sent, but terminal did not respond in time.",
                     "details": received_messages,
                 }
 

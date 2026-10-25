@@ -64,16 +64,10 @@ class CloverTerminal(models.Model):
         default=False,
         help="Connect over secure TLS/WSS. Keep unchecked if unencrypted WS/HTTP is selected in device settings.",
     )
-    pairing_code = fields.Char(
-        string="Pairing Code",
-        readonly=True,
-        help="4-digit pairing PIN to enter on the Clover terminal screen.",
-    )
     pairing_auth_token = fields.Char(
-        string="Pairing Secret",
+        string="Master Auth Token / QR URL",
         copy=False,
-        groups="base.group_system",
-        help="Internal authorization token issued by Clover upon successful pairing.",
+        help="Internal authorization token or full connection URL displayed under the QR code on the Clover screen.",
     )
     is_paired = fields.Boolean(
         string="Is Paired",
@@ -81,12 +75,12 @@ class CloverTerminal(models.Model):
         store=False,
     )
 
-    @api.depends("pairing_auth_token", "pairing_code")
+    @api.depends("pairing_auth_token")
     def _compute_is_paired(self):
         for record in self:
-            token = record.pairing_auth_token or ""
-            code = record.pairing_code or ""
-            record.is_paired = bool(token and len(token) > 10 and token != code)
+            token = (record.pairing_auth_token or "").strip()
+            record.is_paired = bool(token and len(token) > 8)
+
     active = fields.Boolean(default=True)
     company_id = fields.Many2one(
         "res.company",
@@ -116,9 +110,13 @@ class CloverTerminal(models.Model):
                 import urllib.parse
                 try:
                     parsed = urllib.parse.urlparse(raw)
+                    if parsed.scheme == "wss":
+                        self.use_https = True
+                    elif parsed.scheme == "ws":
+                        self.use_https = False
                     if parsed.hostname and not self.ip_address:
                         self.ip_address = parsed.hostname
-                    if parsed.port and not self.port:
+                    if parsed.port:
                         self.port = parsed.port
                     qs = urllib.parse.parse_qs(parsed.query)
                     token = (
@@ -128,7 +126,7 @@ class CloverTerminal(models.Model):
                     )
                     if token:
                         self.pairing_auth_token = token[0].strip()
-                        self.last_status = "Online / Paired (SNPD)"
+                        self.last_status = "Token Configured"
                         return
                 except Exception:
                     pass
@@ -138,69 +136,78 @@ class CloverTerminal(models.Model):
                         k, v = part.split("=", 1)
                         if k.lower() in ("authenticationtoken", "authtoken", "token"):
                             self.pairing_auth_token = v.strip()
-                            self.last_status = "Online / Paired (SNPD)"
+                            self.last_status = "Token Configured"
                             return
             self.pairing_auth_token = raw
-            if raw:
-                self.last_status = "Online / Paired (SNPD)"
 
-    def action_pair_terminal(self):
+    def action_verify_and_pair(self):
         """
-        Initiates pairing with the Clover device and opens the interactive Pairing Wizard immediately.
+        Connects to the Clover SNPD terminal using the configured Master Auth Token,
+        performs the pairing handshake, and verifies the terminal is paired.
         """
         self.ensure_one()
+        if self.connection_mode != "snpd":
+            raise UserError(_("Pairing verification is only applicable for SNPD mode."))
         if not self.ip_address:
             raise UserError(_("Please enter the Device IP Address first."))
-
-        # 1. Use existing or generate fresh 4-digit PIN
-        code = self.pairing_code or f"{random.randint(1000, 9999)}"
-        self.write({
-            "pairing_code": code,
-            "last_status": f"Pairing Pending / PIN: {code}",
-        })
-
-        # 2. Fast non-blocking wake-up ping to Clover (1s) so terminal displays prompt
-        try:
-            port = self.port or 12345
-            client = CloverSnpdClient(
-                ip_address=self.ip_address,
-                port=port,
-                use_ssl=self.use_https,
-                device_serial=self.device_serial,
-                pos_id=f"Odoo-POS-{self.name}",
-                timeout=2.0,
+        if not self.pairing_auth_token:
+            raise UserError(
+                _(
+                    "Please paste the Master Auth Token (or the QR code connection URL) from your Clover terminal screen into the 'Master Auth Token / QR URL' field first."
+                )
             )
-            ws = client._create_ws_connection(client.ws_url, timeout=2.0)
-            pair_payload = {
-                "method": "PAIRING_REQUEST",
-                "name": client.pos_id,
-                "serialNumber": client.device_serial,
-                "authenticationToken": code,
-            }
-            ws.send(client._build_remote_message("PAIRING_REQUEST", pair_payload, req_id="PR-WAKE"))
-            ws.close()
-        except Exception:
-            pass
 
-        # 3. Immediately open the Pairing Wizard modal
-        wizard = self.env["clover.pairing.wizard"].create({
-            "terminal_id": self.id,
-            "pairing_code": code,
-        })
-        return {
-            "name": _("Pair Clover Terminal"),
-            "type": "ir.actions.act_window",
-            "res_model": "clover.pairing.wizard",
-            "view_mode": "form",
-            "res_id": wizard.id,
-            "target": "new",
-        }
+        port = self.port or 12345
+        client = CloverSnpdClient(
+            ip_address=self.ip_address,
+            port=port,
+            use_ssl=self.use_https,
+            auth_token=self.pairing_auth_token.strip(),
+            device_serial=self.device_serial,
+            pos_id=f"Odoo-POS-{self.name}",
+            timeout=8.0,
+        )
+
+        res = client.initiate_pairing(self.pairing_auth_token.strip())
+        if res.get("success"):
+            self.write({
+                "pairing_auth_token": res.get("auth_token", self.pairing_auth_token.strip()),
+                "last_status": "Online / Paired (SNPD)",
+                "last_heartbeat": fields.Datetime.now(),
+            })
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": _("Terminal Paired Successfully!"),
+                    "message": _(
+                        "Clover device '%s' (%s) is confirmed paired and ready for payments.",
+                        self.name,
+                        self.device_serial,
+                    ),
+                    "sticky": False,
+                    "type": "success",
+                },
+            }
+        else:
+            self.write({"last_status": "Offline / Pairing Rejected"})
+            raise UserError(
+                _(
+                    "Pairing verification failed:\n%s\n\n"
+                    "Please check that:\n"
+                    "1. The Master Auth Token matches the token displayed under the QR code on your Clover Flex screen.\n"
+                    "2. Secure Network Pay Display is currently running on the Clover device.\n"
+                    "3. Device IP address (%s) and port (%s) are correct.",
+                    res.get("message", _("Terminal rejected token.")),
+                    self.ip_address,
+                    port,
+                )
+            )
 
     def action_unpair_terminal(self):
         """Clears pairing credentials for this terminal."""
         self.ensure_one()
         self.write({
-            "pairing_code": False,
             "pairing_auth_token": False,
             "last_status": "Unpaired",
         })
@@ -324,7 +331,9 @@ class CloverTerminal(models.Model):
         if self.connection_mode != "snpd":
             raise UserError(_("Test payment button is currently configured for SNPD mode."))
         if not self.is_paired:
-            raise UserError(_("Terminal is not paired yet. Please click 'Pair Terminal' first."))
+            raise UserError(
+                _("Terminal is not paired yet. Please paste your Master Auth Token and click 'Verify & Connect Terminal' first.")
+            )
 
         port = self.port or 12345
         client = CloverSnpdClient(
@@ -366,94 +375,3 @@ class CloverTerminal(models.Model):
             }
         except Exception as exc:
             raise UserError(_("Test payment failed: %s", str(exc)))
-
-
-class CloverPairingWizard(models.TransientModel):
-    _name = "clover.pairing.wizard"
-    _description = "Clover Terminal Pairing Wizard"
-
-    terminal_id = fields.Many2one("clover.terminal", string="Terminal", required=True)
-    device_name = fields.Char(related="terminal_id.name", readonly=True)
-    ip_address = fields.Char(related="terminal_id.ip_address", readonly=True)
-    device_serial = fields.Char(related="terminal_id.device_serial", readonly=True)
-    pairing_code = fields.Char(string="Pairing PIN", required=True, readonly=True)
-    manual_auth_token = fields.Char(
-        string="Or Paste QR Code URL / Token",
-        help="Optional: If you scanned the QR code on the Clover screen, paste it here.",
-    )
-
-    def action_verify_pairing(self):
-        """
-        Verifies the pairing PIN with the Clover device.
-        When the merchant enters the PIN on the Clover touchscreen, Clover issues the permanent authToken.
-        """
-        self.ensure_one()
-        terminal = self.terminal_id
-
-        # 1. If manual QR code token was provided
-        if self.manual_auth_token:
-            token = self.manual_auth_token.strip()
-            if "authenticationToken=" in token or "authToken=" in token:
-                import urllib.parse
-                try:
-                    parsed = urllib.parse.urlparse(token)
-                    qs = urllib.parse.parse_qs(parsed.query)
-                    token = (qs.get("authenticationToken") or qs.get("authToken") or [token])[0]
-                except Exception:
-                    pass
-            terminal.write({
-                "pairing_auth_token": token,
-                "last_status": "Online / Paired (SNPD)",
-                "last_heartbeat": fields.Datetime.now(),
-            })
-            return {
-                "type": "ir.actions.client",
-                "tag": "display_notification",
-                "params": {
-                    "title": _("Pairing Successful!"),
-                    "message": _("Terminal '%s' is now permanently paired and ready.", terminal.name),
-                    "sticky": False,
-                    "type": "success",
-                },
-            }
-
-        # 2. Check Clover device via SNPD
-        port = terminal.port or 12345
-        client = CloverSnpdClient(
-            ip_address=terminal.ip_address,
-            port=port,
-            use_ssl=terminal.use_https,
-            device_serial=terminal.device_serial,
-            pos_id=f"Odoo-POS-{terminal.name}",
-            timeout=8.0,
-        )
-
-        res = client.initiate_pairing(pairing_code=self.pairing_code)
-        if res.get("success") and res.get("auth_token"):
-            terminal.write({
-                "pairing_auth_token": res["auth_token"],
-                "last_status": "Online / Paired (SNPD)",
-                "last_heartbeat": fields.Datetime.now(),
-            })
-            return {
-                "type": "ir.actions.client",
-                "tag": "display_notification",
-                "params": {
-                    "title": _("Pairing Successful!"),
-                    "message": _("Terminal '%s' is now permanently paired and ready.", terminal.name),
-                    "sticky": False,
-                    "type": "success",
-                },
-            }
-        else:
-            raise UserError(
-                _(
-                    "Clover has not confirmed the PIN '%s' yet.\n\n"
-                    "Please ensure you:\n"
-                    "1. Enter your Manager Passcode on Clover (if prompted).\n"
-                    "2. Type '%s' on the Clover touchscreen.\n\n"
-                    "Then click 'Verify & Complete Pairing' again.",
-                    self.pairing_code,
-                    self.pairing_code,
-                )
-            )

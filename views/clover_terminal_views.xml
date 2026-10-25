@@ -8,35 +8,40 @@
             <form string="Clover Terminal">
                 <header>
                     <field name="is_paired" invisible="1"/>
-                    <button name="action_pair_terminal"
-                            string="Pair Terminal"
+                    <button name="action_verify_and_pair"
+                            string="Verify &amp; Connect Terminal"
                             type="object"
                             class="btn-primary"
-                            icon="fa-key"
-                            invisible="connection_mode != 'snpd' or is_paired"/>
-                    <button name="action_unpair_terminal"
-                            string="Unpair Terminal"
-                            type="object"
-                            class="btn-secondary"
-                            icon="fa-unlink"
-                            invisible="connection_mode != 'snpd' or not is_paired"
-                            confirm="Are you sure you want to unpair this terminal?"/>
+                            icon="fa-check-circle"
+                            invisible="connection_mode != 'snpd'"/>
                     <button name="action_send_test_payment"
                             string="Test £0.01 Sale"
                             type="object"
                             class="btn-success"
                             icon="fa-credit-card"
-                            invisible="connection_mode != 'snpd'"/>
+                            invisible="connection_mode != 'snpd' or not is_paired"/>
+                    <button name="action_unpair_terminal"
+                            string="Clear Token"
+                            type="object"
+                            class="btn-secondary"
+                            icon="fa-trash"
+                            invisible="connection_mode != 'snpd' or not is_paired"
+                            confirm="Are you sure you want to clear the pairing token?"/>
                     <button name="action_test_terminal_connection"
-                            string="Test Connection"
+                            string="Ping Device"
                             type="object"
                             class="oe_highlight"
                             icon="fa-wifi"/>
                     <field name="last_status" widget="badge"
                            decoration-success="last_status and 'Online' in last_status"
-                           decoration-danger="last_status and 'Error' in last_status"/>
+                           decoration-danger="last_status and ('Error' in last_status or 'Rejected' in last_status)"/>
                 </header>
                 <sheet>
+                    <div class="alert alert-info d-flex align-items-center mb-3" role="alert" invisible="connection_mode != 'snpd' or is_paired">
+                        <div>
+                            <strong>How to pair:</strong> On your Clover Flex, open <strong>Secure Network Pay Display</strong>. Look at the text below the QR code (or scan the QR code), paste the <strong>authenticationToken</strong> (or the full URL) into <strong>Master Auth Token / QR URL</strong> below, and click <strong>Verify &amp; Connect Terminal</strong>.
+                        </div>
+                    </div>
                     <div class="oe_title">
                         <label for="name" class="oe_edit_only"/>
                         <h1>
@@ -61,9 +66,9 @@
                                    required="connection_mode in ('lan', 'snpd')"/>
                             <field name="use_https"
                                    invisible="connection_mode == 'cloud'"/>
-                            <field name="pairing_code"
-                                   invisible="connection_mode != 'snpd' or not pairing_code"
-                                   readonly="1"/>
+                            <field name="pairing_auth_token"
+                                   invisible="connection_mode != 'snpd'"
+                                   placeholder="Paste 36-character token or full wss:// URL from Clover screen"/>
                         </group>
                     </group>
                     <group>
@@ -88,9 +93,10 @@
                 <field name="model"/>
                 <field name="connection_mode"/>
                 <field name="ip_address"/>
+                <field name="is_paired" widget="boolean_toggle"/>
                 <field name="last_status" widget="badge"
                        decoration-success="last_status and 'Online' in last_status"
-                       decoration-danger="last_status and 'Error' in last_status"/>
+                       decoration-danger="last_status and ('Error' in last_status or 'Rejected' in last_status)"/>
                 <field name="last_heartbeat"/>
                 <field name="company_id" groups="base.group_multi_company"/>
                 <field name="active" widget="boolean_toggle"/>
@@ -125,45 +131,5 @@
               parent="menu_clover_root"
               action="action_clover_terminal"
               sequence="1"/>
-
-    <!-- Clover Pairing Wizard View -->
-    <record id="view_clover_pairing_wizard_form" model="ir.ui.view">
-        <field name="name">clover.pairing.wizard.form</field>
-        <field name="model">clover.pairing.wizard</field>
-        <field name="arch" type="xml">
-            <form string="Pair Clover Terminal">
-                <sheet>
-                    <div class="text-center my-3">
-                        <h4 class="text-muted">Enter this PIN on your Clover Flex screen:</h4>
-                        <div class="p-3 my-2 border rounded bg-light d-inline-block">
-                            <span class="display-3 font-monospace fw-bold text-primary">
-                                <field name="pairing_code" readonly="1"/>
-                            </span>
-                        </div>
-                    </div>
-                    <div class="alert alert-info" role="alert">
-                        <strong>Steps to complete pairing:</strong>
-                        <ol class="mb-0 mt-1">
-                            <li>Look at your <strong><field name="device_name" readonly="1" class="d-inline"/></strong> screen.</li>
-                            <li>If prompted, enter your <strong>Manager Passcode</strong> to unlock.</li>
-                            <li>When the keypad appears, type the <strong>4-digit PIN</strong> above on the Clover touchscreen.</li>
-                            <li>Click <strong>Verify &amp; Complete Pairing</strong> below.</li>
-                        </ol>
-                    </div>
-                    <group string="Alternative Option" class="mt-3">
-                        <field name="manual_auth_token" placeholder="Optional: Paste QR code URL or token if scanned"/>
-                    </group>
-                </sheet>
-                <footer>
-                    <button name="action_verify_pairing"
-                            string="Verify &amp; Complete Pairing"
-                            type="object"
-                            class="btn-primary"
-                            icon="fa-check-circle"/>
-                    <button string="Cancel" class="btn-secondary" special="cancel"/>
-                </footer>
-            </form>
-        </field>
-    </record>
 
 </odoo>
