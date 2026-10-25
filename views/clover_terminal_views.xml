@@ -8,40 +8,85 @@
             <form string="Clover Terminal">
                 <header>
                     <field name="is_paired" invisible="1"/>
-                    <button name="action_verify_and_pair"
-                            string="Verify &amp; Connect Terminal"
+                    <field name="pairing_code" invisible="1"/>
+
+                    <!-- STEP 1: Start pairing — visible when not paired and no code yet -->
+                    <button name="action_start_pairing"
+                            string="Start Pairing"
                             type="object"
                             class="btn-primary"
-                            icon="fa-check-circle"
-                            invisible="connection_mode != 'snpd'"/>
+                            icon="fa-plug"
+                            invisible="connection_mode != 'snpd' or is_paired or pairing_code"/>
+
+                    <!-- STEP 2: Confirm pairing — visible only after we have a pairing code -->
+                    <button name="action_confirm_pairing"
+                            string="Confirm Pairing (code entered on Clover)"
+                            type="object"
+                            class="btn-warning"
+                            icon="fa-check"
+                            invisible="not pairing_code"/>
+
+                    <!-- Verify saved token -->
+                    <button name="action_verify_and_pair"
+                            string="Verify Token"
+                            type="object"
+                            class="btn-secondary"
+                            icon="fa-shield"
+                            invisible="connection_mode != 'snpd' or not is_paired"/>
+
+                    <!-- Test payment — only visible once properly paired -->
                     <button name="action_send_test_payment"
                             string="Test £0.01 Sale"
                             type="object"
                             class="btn-success"
                             icon="fa-credit-card"
                             invisible="connection_mode != 'snpd' or not is_paired"/>
+
+                    <!-- Clear token -->
                     <button name="action_unpair_terminal"
                             string="Clear Token"
                             type="object"
-                            class="btn-secondary"
+                            class="btn-danger"
                             icon="fa-trash"
-                            invisible="connection_mode != 'snpd' or not is_paired"
-                            confirm="Are you sure you want to clear the pairing token?"/>
+                            invisible="not is_paired and not pairing_code"
+                            confirm="Clear all pairing data for this terminal?"/>
+
+                    <!-- TCP ping — always available -->
                     <button name="action_test_terminal_connection"
                             string="Ping Device"
                             type="object"
                             class="oe_highlight"
                             icon="fa-wifi"/>
+
                     <field name="last_status" widget="badge"
-                           decoration-success="last_status and 'Online' in last_status"
-                           decoration-danger="last_status and ('Error' in last_status or 'Rejected' in last_status)"/>
+                           decoration-success="last_status and 'Paired' in last_status"
+                           decoration-warning="last_status and 'Pairing in progress' in last_status"
+                           decoration-danger="last_status and ('Rejected' in last_status or 'Failed' in last_status or 'Unreachable' in last_status)"/>
                 </header>
                 <sheet>
-                    <div class="alert alert-info d-flex align-items-center mb-3" role="alert" invisible="connection_mode != 'snpd' or is_paired">
+                    <!-- Pairing in-progress banner -->
+                    <div class="alert alert-warning d-flex align-items-start mb-3" role="alert"
+                         invisible="not pairing_code">
                         <div>
-                            <strong>How to pair:</strong> On your Clover Flex, open <strong>Secure Network Pay Display</strong>. Look at the text below the QR code (or scan the QR code), paste the <strong>authenticationToken</strong> (or the full URL) into <strong>Master Auth Token / QR URL</strong> below, and click <strong>Verify &amp; Connect Terminal</strong>.
+                            <strong>Action required:</strong>
+                            Your Clover Flex screen is showing a keypad — type the code
+                            <strong><field name="pairing_code" readonly="1" class="d-inline fw-bold fs-4"/></strong>
+                            on the Clover touchscreen, then click
+                            <strong>Confirm Pairing</strong> above.
                         </div>
                     </div>
+
+                    <!-- Not yet paired guide -->
+                    <div class="alert alert-info d-flex align-items-start mb-3" role="alert"
+                         invisible="connection_mode != 'snpd' or is_paired or pairing_code">
+                        <div>
+                            <strong>How to pair:</strong>
+                            Make sure <strong>Secure Network Pay Display</strong> is open on your Clover Flex,
+                            then click <strong>Start Pairing</strong>.
+                            Odoo will connect to the terminal and show you a code to type on the Clover screen.
+                        </div>
+                    </div>
+
                     <div class="oe_title">
                         <label for="name" class="oe_edit_only"/>
                         <h1>
@@ -49,13 +94,13 @@
                         </h1>
                     </div>
                     <group>
-                        <group string="Hardware Specifications">
+                        <group string="Hardware">
                             <field name="device_serial" placeholder="e.g. C143EQ202030587"/>
                             <field name="model"/>
                             <field name="company_id" groups="base.group_multi_company"/>
                             <field name="active" widget="boolean_toggle"/>
                         </group>
-                        <group string="Connection Setup">
+                        <group string="Connection">
                             <field name="connection_mode" widget="radio"/>
                             <field name="ip_address"
                                    invisible="connection_mode == 'cloud'"
@@ -66,15 +111,18 @@
                                    required="connection_mode in ('lan', 'snpd')"/>
                             <field name="use_https"
                                    invisible="connection_mode == 'cloud'"/>
+                            <!-- Saved token — read-only display when paired -->
                             <field name="pairing_auth_token"
-                                   invisible="connection_mode != 'snpd'"
-                                   placeholder="Paste 36-character token or full wss:// URL from Clover screen"/>
+                                   string="Saved Auth Token"
+                                   readonly="1"
+                                   invisible="connection_mode != 'snpd' or not is_paired"
+                                   placeholder="(auto-saved after pairing)"/>
                         </group>
                     </group>
                     <group>
                         <group string="Diagnostics">
                             <field name="last_heartbeat"/>
-                            <field name="notes" placeholder="Notes on location, Wi-Fi network, etc."/>
+                            <field name="notes" placeholder="Notes on location, Wi-Fi, etc."/>
                         </group>
                     </group>
                 </sheet>
@@ -82,7 +130,7 @@
         </field>
     </record>
 
-    <!-- Clover Terminal List View (Odoo 20 <list> standard) -->
+    <!-- Clover Terminal List View -->
     <record id="view_clover_terminal_list" model="ir.ui.view">
         <field name="name">clover.terminal.list</field>
         <field name="model">clover.terminal</field>
@@ -93,10 +141,10 @@
                 <field name="model"/>
                 <field name="connection_mode"/>
                 <field name="ip_address"/>
-                <field name="is_paired" widget="boolean_toggle"/>
+                <field name="is_paired" widget="boolean_toggle" readonly="1"/>
                 <field name="last_status" widget="badge"
-                       decoration-success="last_status and 'Online' in last_status"
-                       decoration-danger="last_status and ('Error' in last_status or 'Rejected' in last_status)"/>
+                       decoration-success="last_status and 'Paired' in last_status"
+                       decoration-danger="last_status and ('Rejected' in last_status or 'Failed' in last_status)"/>
                 <field name="last_heartbeat"/>
                 <field name="company_id" groups="base.group_multi_company"/>
                 <field name="active" widget="boolean_toggle"/>
@@ -104,28 +152,23 @@
         </field>
     </record>
 
-    <!-- Action for Clover Terminals -->
+    <!-- Action -->
     <record id="action_clover_terminal" model="ir.actions.act_window">
         <field name="name">Clover Terminals</field>
         <field name="res_model">clover.terminal</field>
         <field name="view_mode">list,form</field>
         <field name="help" type="html">
-            <p class="o_view_nocontent_smiling_face">
-                Register a Clover Terminal
-            </p>
-            <p>
-                Add your Clover Flex or Mini device serial number to enable cloud payments.
-            </p>
+            <p class="o_view_nocontent_smiling_face">Register a Clover Terminal</p>
+            <p>Add your Clover Flex or Mini to enable card payments via Secure Network Pay Display.</p>
         </field>
     </record>
 
-    <!-- Clover Subheading under POS Configuration -->
+    <!-- Menu -->
     <menuitem id="menu_clover_root"
               name="Clover"
               parent="point_of_sale.menu_point_config_product"
               sequence="100"/>
 
-    <!-- Clover Terminals Menu -->
     <menuitem id="menu_clover_terminal"
               name="Terminals"
               parent="menu_clover_root"

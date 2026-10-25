@@ -67,19 +67,18 @@ class TestCloverSnpdClient(unittest.TestCase):
     @patch("services.clover_snpd_client.websocket.create_connection")
     @patch.object(CloverSnpdClient, "test_tcp_connection")
     def test_initiate_pairing_success(self, mock_tcp, mock_ws_create):
-        """Verify pairing handshake issues auth token when device confirms."""
+        """Verify get_pairing_code returns the code Clover sends."""
         mock_tcp.return_value = {"success": True}
         mock_ws = MagicMock()
         mock_ws.recv.return_value = json.dumps({
-            "method": "PAIRING_SUCCESS",
-            "authToken": "permanent_auth_token_xyz999",
+            "method": "PAIRING_CODE",
+            "payload": json.dumps({"method": "PAIRING_CODE", "pairingCode": "4589"}),
         })
         mock_ws_create.return_value = mock_ws
 
-        res = self.client.initiate_pairing("4589")
+        res = self.client.get_pairing_code()
         self.assertTrue(res["success"])
-        self.assertEqual(res["auth_token"], "permanent_auth_token_xyz999")
-        self.assertEqual(self.client.auth_token, "permanent_auth_token_xyz999")
+        self.assertEqual(res["pairing_code"], "4589")
 
     @patch("services.clover_snpd_client.websocket.create_connection")
     def test_send_sale_request_approved(self, mock_ws_create):
