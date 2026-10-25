@@ -43,28 +43,34 @@ class PosPaymentMethod(models.Model):
 
     @api.onchange("use_payment_terminal")
     def _onchange_use_payment_terminal(self):
-        if self.use_payment_terminal:
+        if self.use_payment_terminal == "clover_cloud":
+            self.payment_provider = "clover_cloud"
+            self.payment_method_type = "terminal"
+        elif self.use_payment_terminal:
             self.payment_provider = self.use_payment_terminal
 
     @api.onchange("payment_provider")
     def _onchange_payment_provider(self):
-        if self.payment_provider:
+        if self.payment_provider == "clover_cloud":
+            self.use_payment_terminal = "clover_cloud"
+            self.payment_method_type = "terminal"
+        elif self.payment_provider:
             self.use_payment_terminal = self.payment_provider
 
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
-            if vals.get("use_payment_terminal") == "clover_cloud" and not vals.get("payment_provider"):
+            if vals.get("use_payment_terminal") == "clover_cloud" or vals.get("payment_provider") == "clover_cloud":
                 vals["payment_provider"] = "clover_cloud"
-            elif vals.get("payment_provider") == "clover_cloud" and not vals.get("use_payment_terminal"):
                 vals["use_payment_terminal"] = "clover_cloud"
+                vals["payment_method_type"] = "terminal"
         return super().create(vals_list)
 
     def write(self, vals):
-        if vals.get("use_payment_terminal") == "clover_cloud" and "payment_provider" not in vals:
+        if vals.get("use_payment_terminal") == "clover_cloud" or vals.get("payment_provider") == "clover_cloud":
             vals["payment_provider"] = "clover_cloud"
-        elif vals.get("payment_provider") == "clover_cloud" and "use_payment_terminal" not in vals:
             vals["use_payment_terminal"] = "clover_cloud"
+            vals["payment_method_type"] = "terminal"
         return super().write(vals)
 
     def init(self):
@@ -73,9 +79,10 @@ class PosPaymentMethod(models.Model):
             self.env.cr.execute(
                 """
                 UPDATE pos_payment_method
-                SET payment_provider = 'clover_cloud'
+                SET payment_provider = 'clover_cloud',
+                    payment_method_type = 'terminal'
                 WHERE use_payment_terminal = 'clover_cloud'
-                  AND (payment_provider IS NULL OR payment_provider != 'clover_cloud')
+                   OR payment_provider = 'clover_cloud';
                 """
             )
         except Exception:
