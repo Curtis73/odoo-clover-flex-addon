@@ -582,6 +582,8 @@ class CloverSnpdClient:
                 raise CloverSnpdException("Terminal did not confirm pairing handshake.")
 
             # Step 2: Dispatch TX_START command wrapped in RemoteMessage envelope
+            # cardEntryMethods bitmask: 1 (MagStripe) | 2 (Chip/ICC) | 4 (Contactless/NFC) | 8 (Manual) = 15
+            all_card_entry_methods = 15
             pay_intent = {
                 "action": "com.clover.remote.protocol.action.START_REMOTE_PROTOCOL_PAY",
                 "amount": int(amount_cents),
@@ -589,6 +591,7 @@ class CloverSnpdClient:
                 "tipAmount": 0,
                 "taxAmount": 0,
                 "transactionType": "PAYMENT",
+                "cardEntryMethods": all_card_entry_methods,
                 "isDisableCashBack": True,
                 "isDisableTip": not prompt_tip,
                 "remotePrint": print_receipt,
@@ -596,6 +599,7 @@ class CloverSnpdClient:
                 "externalPaymentId": external_payment_id,
                 "allowPartialAuth": False,
                 "transactionSettings": {
+                    "cardEntryMethods": all_card_entry_methods,
                     "cloverShouldHandleReceipts": print_receipt,
                     "autoAcceptPaymentConfirmations": True,
                     "autoAcceptSignature": True,
