@@ -306,94 +306,19 @@ class CloverSnpdClient:
             except Exception:
                 pass
 
-    def get_pairing_code(self) -> Dict[str, Any]:
+    def start_pairing(self) -> Tuple[Optional[Any], Optional[str], Optional[str]]:
         """
-        Phase 1 of pairing: connect without a token so Clover generates a
-        pairing code, return it immediately to display to the user.
-        The user must then type this code on the Clover touchscreen.
-        """
-        tcp_check = self.test_tcp_connection()
-        if not tcp_check["success"]:
-            return tcp_check
-
-        # Connect without authenticationToken so Clover generates a code
-        protocol = "wss" if self.use_ssl else "ws"
-        fresh_url = f"{protocol}://{self.ip_address}:{self.port}/remote_pay"
-
-        handshake_payload = {
-            "method": "PAIRING_REQUEST",
-            "name": self.pos_id,
-            "serialNumber": self.device_serial,
-            "authenticationToken": "",
-        }
-
-        ws = None
-        try:
-            ws = self._create_ws_connection(fresh_url, timeout=self.timeout)
-            ws.send(self._build_remote_message("PAIRING_REQUEST", handshake_payload, req_id="PR-GET-CODE"))
-
-            timeout_types = (socket.timeout, TimeoutError)
-            if websocket is not None and hasattr(websocket, "WebSocketTimeoutException"):
-                timeout_types = (socket.timeout, TimeoutError, websocket.WebSocketTimeoutException)
-
-            start_time = time.time()
-            while time.time() - start_time < self.timeout:
-                try:
-                    raw_msg = ws.recv()
-                except timeout_types:
-                    break
-                if not raw_msg:
-                    continue
-
-                method, payload, _ = self._unpack_message(raw_msg)
-                if method == "PAIRING_CODE":
-                    code = payload.get("pairingCode", "")
-                    return {
-                        "success": True,
-                        "pairing_code": code,
-                        "message": f"Enter code {code!r} on the Clover screen to complete pairing.",
-                    }
-                elif method == "PAIRING_RESPONSE" and payload.get("pairingState") == "PAIRED":
-                    # Edge case: device auto-paired (should not happen without token)
-                    token = payload.get("authenticationToken", "")
-                    return {
-                        "success": True,
-                        "pairing_code": None,
-                        "auth_token": token,
-                        "already_paired": True,
-                    }
-
-            return {
-                "success": False,
-                "message": "Clover did not send a pairing code. Ensure Secure Network Pay Display is running on the device.",
-            }
-        except Exception as exc:
-            _logger.error("SNPD get_pairing_code failed: %s", str(exc))
-            return {
-                "success": False,
-                "message": f"Connection failed: {str(exc)}",
-            }
-        finally:
-            if ws:
-                try:
-                    ws.close()
-                except Exception:
-                    pass
-
-    def confirm_pairing(self, pairing_code: str, wait_seconds: float = 50.0) -> Dict[str, Any]:
-        """
-        Phase 2 of pairing: reconnect using the code Clover issued, wait for the
-        user to type it on the Clover screen, and capture the permanent authenticationToken.
-
-        Clover's flow:
-          connect (no token) → PAIRING_CODE → user types code on device
-          → PAIRING_RESPONSE {pairingState: "PAIRED", authenticationToken: "<uuid>"}
-
-        Returns {"success": True, "auth_token": "<uuid>"} on success.
+        Initiates pairing with Clover without closing the WebSocket.
+        Returns:
+            (ws, pairing_code, error_message)
+        If Clover is already paired or responds immediately with a token,
+        it returns (None, token, None).
+        If Clover sends a pairing code, it returns (ws, pairing_code, None).
+        Caller MUST keep ws open and pass it to wait_for_pairing_token()!
         """
         tcp_check = self.test_tcp_connection()
         if not tcp_check["success"]:
-            return tcp_check
+            return None, None, tcp_check.get("message", "Terminal unreachable")
 
         protocol = "wss" if self.use_ssl else "ws"
         fresh_url = f"{protocol}://{self.ip_address}:{self.port}/remote_pay"
@@ -408,63 +333,119 @@ class CloverSnpdClient:
         ws = None
         try:
             ws = self._create_ws_connection(fresh_url, timeout=10.0)
-            ws.send(self._build_remote_message("PAIRING_REQUEST", handshake_payload, req_id="PR-CONFIRM"))
+            ws.send(self._build_remote_message("PAIRING_REQUEST", handshake_payload, req_id="PR-INIT"))
 
             timeout_types = (socket.timeout, TimeoutError)
             if websocket is not None and hasattr(websocket, "WebSocketTimeoutException"):
                 timeout_types = (socket.timeout, TimeoutError, websocket.WebSocketTimeoutException)
 
             start_time = time.time()
-            while time.time() - start_time < wait_seconds:
+            while time.time() - start_time < 8.0:
                 try:
-                    if hasattr(ws, "settimeout"):
-                        ws.settimeout(2.0)
                     raw_msg = ws.recv()
                 except timeout_types:
-                    continue  # Keep looping - waiting for user to type code on device
+                    break
                 if not raw_msg:
                     continue
 
-                method, payload, _ = self._unpack_message(raw_msg)
-                _logger.info("SNPD confirm_pairing received: %s pairingState=%s", method, payload.get("pairingState"))
+                method, payload, envelope = self._unpack_message(raw_msg)
+                if method == "PAIRING_CODE":
+                    code = payload.get("pairingCode", "")
+                    return ws, code, None
+                elif method == "PAIRING_RESPONSE" and payload.get("pairingState") in ("PAIRED", "INITIAL"):
+                    token = payload.get("authenticationToken") or envelope.get("authToken")
+                    try:
+                        ws.close()
+                    except Exception:
+                        pass
+                    return None, token, None
 
-                if method == "PAIRING_RESPONSE":
-                    state = payload.get("pairingState")
-                    if state == "PAIRED":
-                        token = payload.get("authenticationToken", "")
-                        if token:
-                            self.auth_token = token
-                            return {
-                                "success": True,
-                                "auth_token": token,
-                                "message": f"Paired successfully with {self.device_serial}!",
-                            }
-                    elif state == "FAILED":
-                        return {
-                            "success": False,
-                            "message": "Clover rejected the pairing. The code may have expired. Please click 'Start Pairing' again.",
-                        }
-                elif method == "PAIRING_CODE":
-                    # Clover sent a new code - user hasn't typed yet, that's fine, keep waiting
-                    new_code = payload.get("pairingCode", "")
-                    _logger.info("SNPD: Clover re-issued pairing code %s", new_code)
-
-            return {
-                "success": False,
-                "message": "Timed out waiting for you to enter the code on the Clover screen. Please try again.",
-            }
-        except Exception as exc:
-            _logger.error("SNPD confirm_pairing failed: %s", str(exc))
-            return {
-                "success": False,
-                "message": f"Connection error during pairing confirmation: {str(exc)}",
-            }
-        finally:
             if ws:
                 try:
                     ws.close()
                 except Exception:
                     pass
+            return None, None, "Clover did not return a pairing code. Ensure SNPD is running on the terminal."
+        except Exception as exc:
+            if ws:
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+            return None, None, f"Connection failed: {str(exc)}"
+
+    def wait_for_pairing_token(self, ws: Any, timeout: float = 60.0) -> Tuple[bool, Optional[str], str]:
+        """
+        Listens on an already-open WebSocket connection until the merchant enters
+        the 4-digit pairing code on the Clover touchscreen and Clover issues the authToken.
+        Returns:
+            (success, authToken, message)
+        Always closes ws when done.
+        """
+        if not ws:
+            return False, None, "No active pairing connection."
+
+        timeout_types = (socket.timeout, TimeoutError)
+        if websocket is not None and hasattr(websocket, "WebSocketTimeoutException"):
+            timeout_types = (socket.timeout, TimeoutError, websocket.WebSocketTimeoutException)
+
+        start_time = time.time()
+        try:
+            while time.time() - start_time < timeout:
+                try:
+                    if hasattr(ws, "settimeout"):
+                        ws.settimeout(2.0)
+                    raw_msg = ws.recv()
+                except timeout_types:
+                    continue
+                if not raw_msg:
+                    continue
+
+                method, payload, envelope = self._unpack_message(raw_msg)
+                _logger.info("SNPD pairing listener received: %s, payload: %s", method, payload)
+
+                if method == "PAIRING_RESPONSE":
+                    state = payload.get("pairingState")
+                    if state in ("PAIRED", "INITIAL"):
+                        token = payload.get("authenticationToken") or envelope.get("authToken")
+                        if token:
+                            self.auth_token = token
+                            return True, token, "Paired successfully."
+                    elif state == "FAILED":
+                        return False, None, "Clover rejected the pairing code."
+                elif method == "PAIRING_CODE":
+                    continue
+
+            return False, None, "Timed out waiting for code entry on Clover touchscreen."
+        except Exception as exc:
+            return False, None, f"Pairing error: {str(exc)}"
+        finally:
+            try:
+                ws.close()
+            except Exception:
+                pass
+
+    def get_pairing_code(self) -> Dict[str, Any]:
+        """Compatibility helper for unit tests."""
+        ws, code, err = self.start_pairing()
+        if err:
+            return {"success": False, "message": err}
+        if ws:
+            try:
+                ws.close()
+            except Exception:
+                pass
+        return {"success": True, "pairing_code": code}
+
+    def confirm_pairing(self, pairing_code: str, wait_seconds: float = 50.0) -> Dict[str, Any]:
+        """Legacy helper maintained for backward compatibility."""
+        ws, code, err = self.start_pairing()
+        if err:
+            return {"success": False, "message": err}
+        if not ws:
+            return {"success": True, "auth_token": code}
+        ok, token, msg = self.wait_for_pairing_token(ws, timeout=wait_seconds)
+        return {"success": ok, "auth_token": token, "message": msg}
 
     def verify_existing_token(self) -> Dict[str, Any]:
         """
