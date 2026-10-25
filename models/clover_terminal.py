@@ -462,6 +462,8 @@ class CloverTerminal(models.Model):
                 prompt_tip=False,
                 print_receipt=False,
             )
+            if client.auth_token and client.auth_token != self.pairing_auth_token:
+                self.write({"pairing_auth_token": client.auth_token})
             card_tx = res.get("cardTransaction", {})
             return {
                 "type": "ir.actions.client",

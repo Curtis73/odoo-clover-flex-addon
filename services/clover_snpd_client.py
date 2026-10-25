@@ -627,7 +627,19 @@ class CloverSnpdClient:
                 if not method:
                     continue
 
-                _logger.info("Clover SNPD event received: %s", method)
+                _logger.info("Clover SNPD event received: %s, payload: %s", method, payload)
+
+                # Handle remote error immediately
+                if method in ("REMOTE_ERROR", "ERROR"):
+                    err_msg = payload.get("message") or payload.get("description") or payload.get("errorMessage") or str(payload)
+                    _logger.error("Clover SNPD error received: %s (payload: %s)", method, payload)
+                    raise CloverSnpdException(f"Clover rejected payment request: {err_msg}")
+
+                # Handle TX_START response
+                if method == "TX_START_RESPONSE":
+                    if payload.get("result") is False:
+                        raise CloverSnpdException(f"Clover could not start transaction: {payload.get('reason', 'Device busy or transaction rejected')}")
+                    continue
 
                 # Auto-confirm payment if terminal requests remote confirmation
                 if method in ("CONFIRM_PAYMENT", "CONFIRM_PAYMENT_MESSAGE"):
