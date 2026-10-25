@@ -1,9 +1,13 @@
 /** @odoo-module */
 
 import { PaymentInterface } from "@point_of_sale/app/utils/payment/payment_interface";
+import { PosPayment } from "@point_of_sale/app/models/pos_payment";
+import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment_screen";
+import OrderPaymentValidation from "@point_of_sale/app/utils/order_payment_validation";
 import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { registry } from "@web/core/registry";
 import { _t } from "@web/core/l10n/translation";
+import { patch } from "@web/core/utils/patch";
 
 /**
  * Clover Cloud Pay Display Payment Interface for Odoo 20 POS.
@@ -258,8 +262,79 @@ export class PaymentCloverCloud extends PaymentInterface {
 }
 
 // Register for Odoo 20 pos_payment_providers registry
-registry.category("pos_payment_providers").add("clover_cloud", PaymentCloverCloud);
-// Also register under pos_payment_interfaces for backwards compatibility
+registry.category("pos_payment_providers").add("clover_cloud", PaymentCloverCloud, { force: true });
 if (registry.category("pos_payment_interfaces")) {
-    registry.category("pos_payment_interfaces").add("clover_cloud", PaymentCloverCloud);
+    registry.category("pos_payment_interfaces").add("clover_cloud", PaymentCloverCloud, { force: true });
 }
+
+/**
+ * Atomic Enforcement: Ensure Clover terminal interface is ALWAYS active
+ * and the 'Send' button is ALWAYS displayed when Card is selected.
+ */
+patch(PaymentScreen.prototype, {
+    async addNewPaymentLine(paymentMethod, args = {}) {
+        const isClover =
+            paymentMethod?.payment_provider === "clover_cloud" ||
+            paymentMethod?.use_payment_terminal === "clover_cloud";
+
+        if (isClover && !paymentMethod.payment_interface) {
+            paymentMethod.payment_interface = new PaymentCloverCloud(this.pos, paymentMethod);
+        }
+
+        const res = await super.addNewPaymentLine(...arguments);
+
+        if (isClover) {
+            const line = this.selectedPaymentLine || this.paymentLines.at(-1);
+            if (line && line.payment_status !== "done") {
+                if (typeof line.setPaymentStatus === "function") {
+                    line.setPaymentStatus("pending");
+                } else if (typeof line.set_payment_status === "function") {
+                    line.set_payment_status("pending");
+                }
+            }
+        }
+        return res;
+    },
+});
+
+/**
+ * Atomic Enforcement: A Clover payment line is NEVER done until the terminal
+ * returns approval and sets status to 'done'.
+ */
+patch(PosPayment.prototype, {
+    isDone() {
+        const isClover =
+            this.payment_method_id?.payment_provider === "clover_cloud" ||
+            this.payment_method_id?.use_payment_terminal === "clover_cloud";
+        if (isClover) {
+            return this.payment_status === "done";
+        }
+        return super.isDone(...arguments);
+    },
+});
+
+/**
+ * Atomic Enforcement: Strictly block order validation if any Clover payment line
+ * has not been authorized on the physical terminal.
+ */
+patch(OrderPaymentValidation.prototype, {
+    async validateOrder(isForceValidate) {
+        for (const line of this.paymentLines) {
+            const isClover =
+                line.payment_method_id?.payment_provider === "clover_cloud" ||
+                line.payment_method_id?.use_payment_terminal === "clover_cloud";
+            if (isClover && line.payment_status !== "done") {
+                this.pos.dialog.add(AlertDialog, {
+                    title: _t("Card Payment Required"),
+                    body: _t(
+                        "Cannot validate sale: The £%s card payment has not been taken on the Clover terminal.\n\n" +
+                        "Please click 'Send' on the payment line and have the customer tap or insert their card on the terminal.",
+                        this.pos.formatCurrency(line.amount)
+                    ),
+                });
+                return false;
+            }
+        }
+        return await super.validateOrder(...arguments);
+    },
+});

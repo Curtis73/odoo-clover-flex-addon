@@ -32,6 +32,9 @@ Architectural Features:
         "views/pos_payment_method_views.xml",
     ],
     "assets": {
+        "point_of_sale.payment_terminals": [
+            "pos_clover_cloud/static/src/app/payment_clover.js",
+        ],
         "point_of_sale._assets_pos": [
             "pos_clover_cloud/static/src/app/payment_clover.js",
         ],
