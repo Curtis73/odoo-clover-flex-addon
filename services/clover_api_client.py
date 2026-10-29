@@ -276,7 +276,7 @@ class CloverApiClient:
             return self._request("GET", path, device_serial=device_serial)
         else:
             clean_id = external_payment_id.replace("-", "")[:32] if external_payment_id else external_payment_id
-            path = f"/connect/v1/payments?externalPaymentId={clean_id}"
+            path = f"/connect/v1/payments/external/{clean_id}"
             return self._request("GET", path, device_serial=device_serial)
 
     def cancel_active_payment(

@@ -391,11 +391,11 @@ class PosPaymentMethod(models.Model):
                     "card_brand": card_brand,
                     "card_last4": card_last4,
                 }
-            elif status_val.upper() in ("FAIL", "FAILED", "DECLINED"):
+            elif status_val.upper() in ("FAIL", "FAILED", "DECLINED") or data.get("type") == "api_error" or data.get("code") == "processing_error":
                 reason = data.get("reason") or data.get("message") or "Payment declined on device."
                 tx.write({"state": "failed", "error_message": reason})
                 return {"success": False, "state": "failed", "error": reason}
-            elif status_val.upper() in ("CANCEL", "CANCELLED", "VOIDED"):
+            elif status_val.upper() in ("CANCEL", "CANCELLED", "CANCELED", "VOIDED"):
                 tx.write({"state": "cancelled", "error_message": "Cancelled by customer/terminal."})
                 return {"success": False, "state": "cancelled", "error": "Transaction cancelled."}
             else:
