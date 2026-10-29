@@ -241,6 +241,8 @@ class CloverApiClient:
         :param print_receipt: Print receipt using the Clover device's built-in printer
         :return: JSON response from Clover Cloud
         """
+        if external_payment_id:
+            external_payment_id = external_payment_id.replace("-", "")[:32]
         path = "/connect/v1/payments"
         payload = {
             "amount": int(amount_cents),
@@ -273,7 +275,8 @@ class CloverApiClient:
             path = f"/connect/v1/payments/{clover_payment_id}"
             return self._request("GET", path, device_serial=device_serial)
         else:
-            path = f"/connect/v1/payments?externalPaymentId={external_payment_id}"
+            clean_id = external_payment_id.replace("-", "")[:32] if external_payment_id else external_payment_id
+            path = f"/connect/v1/payments?externalPaymentId={clean_id}"
             return self._request("GET", path, device_serial=device_serial)
 
     def cancel_active_payment(
@@ -287,7 +290,7 @@ class CloverApiClient:
         path = "/connect/v1/device/cancel"
         payload = {}
         if external_payment_id:
-            payload["externalPaymentId"] = external_payment_id
+            payload["externalPaymentId"] = external_payment_id.replace("-", "")[:32]
         return self._request(
             "POST",
             path,

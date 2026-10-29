@@ -148,14 +148,15 @@ export class PaymentCloverCloud extends PaymentInterface {
 
         const lineId = line.uuid || line.cid || "clover_line";
 
-        // Robust UUID v4 generation compatible with older embedded POS browsers
-        const externalId = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+        // Robust UUID v4 generation compatible with older embedded POS browsers (max 32 chars for Clover)
+        const rawUuid = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
             ? crypto.randomUUID()
-            : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+            : "xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxx".replace(/[xy]/g, function (c) {
                 const r = (Math.random() * 16) | 0;
                 const v = c === "x" ? r : (r & 0x3) | 0x8;
                 return v.toString(16);
             });
+        const externalId = rawUuid.replace(/-/g, "").slice(0, 32);
         line.terminal_service_id = externalId;
         this._setPaymentStatus(line, "waitingCard");
 
